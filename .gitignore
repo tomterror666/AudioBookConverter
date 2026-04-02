@@ -55,6 +55,14 @@ yarn-error.log
 # Bundle artifact
 *.jsbundle
 
+# Python venv at repo root (DependencyStatus native module)
+.audioBookConverter/
+
+# Cursor — Project Rules sollen im Repo bleiben; andere .cursor-Dateien lokal möglich
+# (docs/, AGENTS.md nicht ignorieren)
+.cursor/*
+!.cursor/rules/
+
 # Ruby / CocoaPods
 **/Pods/
 /vendor/bundle/

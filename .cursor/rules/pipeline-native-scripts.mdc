@@ -1,0 +1,28 @@
+---
+description: Whisper-Suche, ffmpeg-Merge, M4B und native Bridge (macOS)
+globs: "**/conversionPipeline.ts,**/DependencyStatus.mm,**/scripts/*.py"
+alwaysApply: false
+---
+
+# Pipeline & Skripte
+
+## Schritte (JS)
+
+1. MP3 zählen → `countMp3FilesInDirectory`
+2. Kapitel (Whisper) → `detectChaptersWithWhisper` (Python `whisper_chapter_scan.py`)
+3. Merge + Kapitel-Metadaten → `createMergedAudiobookWithChapters` (`merge_mp3_chapters.py`)
+4. M4B → `createM4bAudiobook` (ffmpeg remux, löscht `AudiobookConverter_merged.m4a`)
+
+## Python / ffmpeg
+
+- **Scan:** nur erste **45 s** pro MP3 (ffmpeg WAV → faster-whisper), **`vad_filter=False`**; Log **`AudiobookConverter_kapitel.log`** im gewählten Ordner; JSON nach stdout.
+- **Merge:** gleiche **sortierte** MP3-Liste wie Scan; AAC **`48k`** für Sprache; Ausgabe **`AudiobookConverter_merged.m4a`** im Projektordner.
+- **M4B:** **`AudiobookConverter.m4b`** im Projektordner; M4A muss direkt dort liegen (Parent = gewählter Ordner).
+
+## Native RCT (DependencyStatus)
+
+`countMp3FilesInDirectory`, `detectChaptersWithWhisper`, `createMergedAudiobookWithChapters`, `createM4bAudiobook`, `checkAll`, `runSingleDependencyAction`.
+
+## Pfade
+
+`AUDIOBOOK_PROJECT_ROOT` / `AppProjectRoot()` → Repo-Wurzel; Skripte: `scripts/…`. ffmpeg: `FfmpegExecutablePath()` (Homebrew + PATH-Export).

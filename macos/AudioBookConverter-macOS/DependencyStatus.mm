@@ -1,0 +1,1036 @@
+#import <React/RCTBridgeModule.h>
+
+@interface DependencyStatus : NSObject <RCTBridgeModule>
+@end
+
+/// Gleicher Pfad wie RCTEventEmitter: JS lauscht auf DeviceEventEmitter („RCTDeviceEventEmitter“).
+static void EmitConversionProgressToJS(RCTCallableJSModules *_Nullable jsModules,
+                                     NSInteger cur,
+                                     NSInteger tot,
+                                     NSString *kind)
+{
+  if (jsModules == nil || tot <= 0 || cur < 0) {
+    return;
+  }
+  NSDictionary *body = @{@"current" : @(cur), @"total" : @(tot), @"kind" : (kind.length > 0 ? kind : @"whisper")};
+  RCTCallableJSModules *caller = jsModules;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [caller invokeModule:@"RCTDeviceEventEmitter"
+                  method:@"emit"
+                withArgs:@[ @"WhisperScanProgress", body ]];
+  });
+}
+
+/// Merge: Kapitel- oder Datei-Spur, siehe merge_mp3_chapters.py — [ch:3:32:marks]
+static void EmitMergeChapterTagToJS(RCTCallableJSModules *_Nullable jsModules,
+                                   NSInteger chapterCur,
+                                   NSInteger chapterTot,
+                                   NSString *mode)
+{
+  if (jsModules == nil || chapterTot <= 0 || chapterCur < 1) {
+    return;
+  }
+  NSDictionary *body = @{
+    @"kind" : @"merge",
+    @"chapterCurrent" : @(chapterCur),
+    @"chapterTotal" : @(chapterTot),
+    @"chapterMode" : (mode.length > 0 ? mode : @"marks"),
+  };
+  RCTCallableJSModules *caller = jsModules;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [caller invokeModule:@"RCTDeviceEventEmitter"
+                  method:@"emit"
+                withArgs:@[ @"WhisperScanProgress", body ]];
+  });
+}
+
+static void ParseMergeChapterTagLine(NSString *line, RCTCallableJSModules *_Nullable jsModules)
+{
+  static NSRegularExpression *re = nil;
+  static dispatch_once_t chOnce;
+  dispatch_once(&chOnce, ^{
+    re = [NSRegularExpression regularExpressionWithPattern:@"\\[ch:(\\d+):(\\d+):(\\w+)\\]"
+                                                   options:0
+                                                     error:NULL];
+  });
+  if (re == nil || line.length == 0) {
+    return;
+  }
+  NSString *trimmed =
+      [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  NSTextCheckingResult *match =
+      [re firstMatchInString:trimmed options:0 range:NSMakeRange(0, trimmed.length)];
+  if (!match || match.numberOfRanges < 4) {
+    return;
+  }
+  NSInteger cur = [[trimmed substringWithRange:[match rangeAtIndex:1]] integerValue];
+  NSInteger tot = [[trimmed substringWithRange:[match rangeAtIndex:2]] integerValue];
+  NSString *mode = [trimmed substringWithRange:[match rangeAtIndex:3]];
+  if (tot <= 0 || cur < 1 || cur > tot) {
+    return;
+  }
+  EmitMergeChapterTagToJS(jsModules, cur, tot, [mode lowercaseString]);
+}
+
+static void ParseBracketProgressLine(NSString *line,
+                                  RCTCallableJSModules *_Nullable jsModules,
+                                  NSString *kind)
+{
+  static NSRegularExpression *re = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    re = [NSRegularExpression regularExpressionWithPattern:@"\\[(\\d+)/(\\d+)\\]"
+                                                   options:0
+                                                     error:NULL];
+  });
+  if (re == nil || line.length == 0) {
+    return;
+  }
+  NSString *trimmed =
+      [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if (trimmed.length == 0) {
+    return;
+  }
+  NSTextCheckingResult *match =
+      [re firstMatchInString:trimmed options:0 range:NSMakeRange(0, trimmed.length)];
+  if (!match || match.numberOfRanges < 3) {
+    return;
+  }
+  NSInteger cur = [[trimmed substringWithRange:[match rangeAtIndex:1]] integerValue];
+  NSInteger tot = [[trimmed substringWithRange:[match rangeAtIndex:2]] integerValue];
+  if (tot <= 0 || cur < 0) {
+    return;
+  }
+  EmitConversionProgressToJS(jsModules, cur, tot, kind);
+}
+
+static void DrainStderrLinesFromBuffer(NSMutableData *buffer,
+                                       NSMutableString *stderrAccum,
+                                       RCTCallableJSModules *_Nullable jsModules,
+                                       NSString *progressKind)
+{
+  while (buffer.length > 0) {
+    const uint8_t *b = (const uint8_t *)buffer.bytes;
+    NSUInteger n = buffer.length;
+    NSUInteger lineEnd = NSNotFound;
+    for (NSUInteger i = 0; i < n; i++) {
+      if (b[i] == '\n') {
+        lineEnd = i;
+        break;
+      }
+    }
+    if (lineEnd == NSNotFound) {
+      break;
+    }
+    NSData *lineData = [buffer subdataWithRange:NSMakeRange(0, lineEnd)];
+    [buffer replaceBytesInRange:NSMakeRange(0, lineEnd + 1) withBytes:NULL length:0];
+    NSString *line = [[NSString alloc] initWithData:lineData encoding:NSUTF8StringEncoding];
+    if (line.length == 0) {
+      continue;
+    }
+    [stderrAccum appendString:line];
+    [stderrAccum appendString:@"\n"];
+    ParseMergeChapterTagLine(line, jsModules);
+    ParseBracketProgressLine(line, jsModules, progressKind);
+  }
+}
+
+/// Stdout als NSString; Stderr zeilenweise (Fortschritt [i/n] → JS Event).
+static NSString *_Nullable RunShellSeparatingStdoutStreamingStderr(NSString *command,
+                                                                   NSMutableString *stderrAccum,
+                                                                   int *exitStatusOut,
+                                                                   RCTCallableJSModules *_Nullable jsModules,
+                                                                   NSString *progressKind)
+{
+  if (exitStatusOut != NULL) {
+    *exitStatusOut = -1;
+  }
+  @try {
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/bin/sh"];
+    [task setArguments:@[ @"-c", command ]];
+    NSPipe *outPipe = [NSPipe pipe];
+    NSPipe *errPipe = [NSPipe pipe];
+    [task setStandardOutput:outPipe];
+    [task setStandardError:errPipe];
+    NSFileHandle *errRead = [errPipe fileHandleForReading];
+    NSMutableData *errBuf = [NSMutableData data];
+
+    [task launch];
+
+    // WICHTIG: readDataOfLength:blockiert bis N Bytes oder EOF — stderr-Zeilen kämen erst am Ende.
+    // availableData liefert jeweils die aktuell verfügbaren Bytes (nach jeder Zeile mit flush).
+    while (YES) {
+      @autoreleasepool {
+        NSData *chunk = [errRead availableData];
+        if (chunk.length > 0) {
+          [errBuf appendData:chunk];
+          DrainStderrLinesFromBuffer(errBuf, stderrAccum, jsModules, progressKind);
+        }
+        if (![task isRunning] && chunk.length == 0) {
+          break;
+        }
+      }
+    }
+
+    [task waitUntilExit];
+    if (exitStatusOut != NULL) {
+      *exitStatusOut = (int)[task terminationStatus];
+    }
+    if (errBuf.length > 0) {
+      NSString *rest = [[NSString alloc] initWithData:errBuf encoding:NSUTF8StringEncoding];
+      if (rest.length > 0) {
+        [stderrAccum appendString:rest];
+        ParseMergeChapterTagLine(rest, jsModules);
+        ParseBracketProgressLine(rest, jsModules, progressKind);
+      }
+    }
+
+    NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
+    return [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding] ?: @"";
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
+
+/// Volle Ausgabe (mehrzeilig), für Update-Logs
+static NSString *_Nullable RunShellFull(NSString *command)
+{
+  @try {
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/bin/sh"];
+    [task setArguments:@[ @"-c", command ]];
+    NSPipe *pipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:pipe];
+    [task launch];
+    [task waitUntilExit];
+    NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
+
+/// Stdout und Stderr getrennt (z. B. JSON nur in stdout).
+static NSString *_Nullable RunShellSeparatingStdout(NSString *command,
+                                                    NSString *_Nullable *stderrOut,
+                                                    int *exitStatusOut)
+{
+  if (stderrOut != NULL) {
+    *stderrOut = nil;
+  }
+  if (exitStatusOut != NULL) {
+    *exitStatusOut = -1;
+  }
+  @try {
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/bin/sh"];
+    [task setArguments:@[ @"-c", command ]];
+    NSPipe *outPipe = [NSPipe pipe];
+    NSPipe *errPipe = [NSPipe pipe];
+    [task setStandardOutput:outPipe];
+    [task setStandardError:errPipe];
+    [task launch];
+    [task waitUntilExit];
+    if (exitStatusOut != NULL) {
+      *exitStatusOut = (int)[task terminationStatus];
+    }
+    NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
+    NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
+    if (stderrOut != NULL) {
+      *stderrOut = [[NSString alloc] initWithData:errData encoding:NSUTF8StringEncoding] ?: @"";
+    }
+    return [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding] ?: @"";
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
+
+static NSString *_Nullable RunShell(NSString *command)
+{
+  NSString *full = RunShellFull(command);
+  if (!full) {
+    return nil;
+  }
+  return [full stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static void AppendLog(NSMutableString *log, NSString *title, NSString *_Nullable output)
+{
+  [log appendFormat:@"— %@ —\n", title];
+  if (output.length > 0) {
+    [log appendString:output];
+    if (![output hasSuffix:@"\n"]) {
+      [log appendString:@"\n"];
+    }
+  } else {
+    [log appendString:@"(keine Ausgabe)\n"];
+  }
+  [log appendString:@"\n"];
+}
+
+static NSString *ShellQuotePath(NSString *path)
+{
+  NSString *escaped = [path stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"];
+  return [NSString stringWithFormat:@"'%@'", escaped];
+}
+
+#ifndef AUDIOBOOK_PROJECT_ROOT
+#error AUDIOBOOK_PROJECT_ROOT must be set (Xcode: GCC_PREPROCESSOR_DEFINITIONS, $(SRCROOT)/..)
+#endif
+
+/// Repo-Wurzel: Build-Flag $(SRCROOT)/.. (Ordner „macos“ → Elternverzeichnis). venv: <Repo>/.audioBookConverter
+static NSString *AppProjectRoot(void)
+{
+  return [AUDIOBOOK_PROJECT_ROOT stringByStandardizingPath];
+}
+
+static NSString *AppVenvRoot(void)
+{
+  return [[AppProjectRoot() stringByAppendingPathComponent:@".audioBookConverter"] stringByStandardizingPath];
+}
+
+/// venvRoot = Ordner der venv (enthält bin/python3). nil/leer → system "python3"
+static NSString *PythonExecutableToken(NSString *_Nullable venvRoot)
+{
+  if (venvRoot == nil || venvRoot.length == 0) {
+    return @"python3";
+  }
+  NSString *root = [venvRoot stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if (root.length == 0) {
+    return @"python3";
+  }
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSString *py3 = [root stringByAppendingPathComponent:@"bin/python3"];
+  if ([fm isExecutableFileAtPath:py3]) {
+    return ShellQuotePath(py3);
+  }
+  NSString *py = [root stringByAppendingPathComponent:@"bin/python"];
+  if ([fm isExecutableFileAtPath:py]) {
+    return ShellQuotePath(py);
+  }
+  return ShellQuotePath(py3);
+}
+
+static int ParseFirstIntAfterDot(NSString *versionTail)
+{
+  NSArray *parts = [versionTail componentsSeparatedByString:@"."];
+  if (parts.count < 1) {
+    return -1;
+  }
+  return [parts[0] intValue];
+}
+
+static NSString *CheckPython(NSString *pyExe)
+{
+  NSString *cmd = [NSString stringWithFormat:@"%@ --version 2>&1", pyExe];
+  NSString *out = RunShell(cmd);
+  if (!out || out.length == 0) {
+    return @"missing";
+  }
+  NSString *t = [out lowercaseString];
+  if (![t hasPrefix:@"python"]) {
+    return @"wrong_version";
+  }
+  NSRange r = [t rangeOfString:@"python "];
+  if (r.location == NSNotFound) {
+    return @"wrong_version";
+  }
+  NSString *after = [t substringFromIndex:NSMaxRange(r)];
+  NSArray *segs = [after componentsSeparatedByString:@"."];
+  if (segs.count < 2) {
+    return @"wrong_version";
+  }
+  int major = [segs[0] intValue];
+  int minor = [segs[1] intValue];
+  if (major > 3 || (major == 3 && minor >= 9)) {
+    return @"ok";
+  }
+  return @"wrong_version";
+}
+
+static NSString *CheckPip(NSString *pyExe)
+{
+  NSString *cmd = [NSString stringWithFormat:@"%@ -m pip --version 2>&1", pyExe];
+  NSString *out = RunShell(cmd);
+  if (!out || out.length < 5) {
+    return @"missing";
+  }
+  NSString *t = [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  NSRange r = [t rangeOfString:@"pip "];
+  if (r.location == NSNotFound) {
+    return @"wrong_version";
+  }
+  NSString *rest = [t substringFromIndex:NSMaxRange(r)];
+  NSScanner *scanner = [NSScanner scannerWithString:rest];
+  double major = 0;
+  if (![scanner scanDouble:&major]) {
+    return @"wrong_version";
+  }
+  /// Mindestversion pip (Major.Minor aus erstem Token), hier 26.0.0 → Major ≥ 26
+  if (major >= 26.0) {
+    return @"ok";
+  }
+  return @"wrong_version";
+}
+
+/// Ohne Terminal hat die GUI-App meist kein Homebrew im PATH — ffmpeg sonst „missing“, obwohl installiert.
+static NSString *_Nullable FfmpegExecutablePath(void)
+{
+  NSFileManager *fm = [NSFileManager defaultManager];
+  if ([fm isExecutableFileAtPath:@"/opt/homebrew/bin/ffmpeg"]) {
+    return @"/opt/homebrew/bin/ffmpeg";
+  }
+  if ([fm isExecutableFileAtPath:@"/usr/local/bin/ffmpeg"]) {
+    return @"/usr/local/bin/ffmpeg";
+  }
+  NSString *p = RunShell(
+      @"export PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\"; command -v ffmpeg");
+  return p.length > 0 ? p : nil;
+}
+
+static NSString *CheckFfmpeg(void)
+{
+  NSString *ffmpeg = FfmpegExecutablePath();
+  if (ffmpeg.length == 0) {
+    return @"missing";
+  }
+  NSString *out = RunShell(
+      [NSString stringWithFormat:@"%@ -version 2>&1 | head -n 1", ShellQuotePath(ffmpeg)]);
+  if (!out || out.length < 8) {
+    return @"missing";
+  }
+  NSString *t = [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if (![t hasPrefix:@"ffmpeg version"]) {
+    return @"missing";
+  }
+  NSRange r = [t rangeOfString:@"ffmpeg version "];
+  if (r.location == NSNotFound) {
+    return @"wrong_version";
+  }
+  NSString *ver = [[t substringFromIndex:NSMaxRange(r)] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+  NSArray *parts = [ver componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@" -"]];
+  if (parts.count < 1 || [parts[0] length] == 0) {
+    return @"wrong_version";
+  }
+  int major = ParseFirstIntAfterDot(parts[0]);
+  if (major >= 4) {
+    return @"ok";
+  }
+  if (major >= 0) {
+    return @"wrong_version";
+  }
+  return @"missing";
+}
+
+static NSString *CheckFasterWhisper(NSString *pyExe)
+{
+  NSString *cmd = [NSString stringWithFormat:@"%@ -m pip show faster-whisper 2>&1", pyExe];
+  NSString *out = RunShell(cmd);
+  if (!out || [out rangeOfString:@"Name: faster-whisper"].location == NSNotFound) {
+    return @"missing";
+  }
+  NSArray *lines = [out componentsSeparatedByString:@"\n"];
+  for (NSString *line in lines) {
+    if ([line hasPrefix:@"Version:"]) {
+      NSString *v = [[line substringFromIndex:8] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+      NSArray *segs = [v componentsSeparatedByString:@"."];
+      if (segs.count >= 2) {
+        int major = [segs[0] intValue];
+        int minor = [segs[1] intValue];
+        if (major > 0 || minor >= 10) {
+          return @"ok";
+        }
+      }
+      return @"wrong_version";
+    }
+  }
+  return @"ok";
+}
+
+static NSString *_Nullable BrewExecutablePath(void)
+{
+  NSFileManager *fm = [NSFileManager defaultManager];
+  if ([fm isExecutableFileAtPath:@"/opt/homebrew/bin/brew"]) {
+    return @"/opt/homebrew/bin/brew";
+  }
+  if ([fm isExecutableFileAtPath:@"/usr/local/bin/brew"]) {
+    return @"/usr/local/bin/brew";
+  }
+  NSString *which = RunShell(@"command -v brew");
+  return which.length > 0 ? which : nil;
+}
+
+/// Ausführbaren venv-Python als sh-Token, sonst reject und nil.
+static NSString *_Nullable VenvPythonTokenOrReject(NSFileManager *fm,
+                                                    NSString *venv,
+                                                    RCTPromiseRejectBlock reject)
+{
+  NSString *py3 = [venv stringByAppendingPathComponent:@"bin/python3"];
+  if ([fm isExecutableFileAtPath:py3]) {
+    return ShellQuotePath(py3);
+  }
+  NSString *py = [venv stringByAppendingPathComponent:@"bin/python"];
+  if ([fm isExecutableFileAtPath:py]) {
+    return ShellQuotePath(py);
+  }
+  reject(@"no_venv",
+         @"Kein Python in der Projekt-venv (.audioBookConverter im Repo). Zuerst bei „Python“ auf Install tippen.",
+         nil);
+  return nil;
+}
+
+static void RunSingleDependency(NSString *key,
+                                NSString *action,
+                                NSMutableString *log,
+                                RCTPromiseResolveBlock resolve,
+                                RCTPromiseRejectBlock reject)
+{
+  NSString *venv = AppVenvRoot();
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSString *py3path = [venv stringByAppendingPathComponent:@"bin/python3"];
+  BOOL install = [action isEqualToString:@"install"];
+  BOOL update = [action isEqualToString:@"update"];
+
+  if ([key isEqualToString:@"python"]) {
+    if (install) {
+      if ([fm isExecutableFileAtPath:py3path]) {
+        AppendLog(log, @"Python", @"venv existiert bereits.\n");
+      } else {
+        NSString *createCmd =
+            [NSString stringWithFormat:@"python3 -m venv %@", ShellQuotePath(venv)];
+        AppendLog(log, @"venv anlegen", RunShellFull(createCmd));
+        if (![fm isExecutableFileAtPath:py3path]) {
+          reject(@"python",
+                 @"Konnte die Projekt-venv (.audioBookConverter) nicht anlegen. Ist python3 im PATH?",
+                 nil);
+          return;
+        }
+      }
+    } else if (update) {
+      NSString *brew = BrewExecutablePath();
+      if (brew != nil) {
+        AppendLog(log, @"Python (Homebrew)",
+                  RunShellFull([NSString stringWithFormat:@"%@ upgrade python 2>&1", ShellQuotePath(brew)]));
+      } else {
+        AppendLog(log, @"Homebrew", @"Nicht gefunden — Python bitte manuell aktualisieren.\n");
+      }
+      AppendLog(log, @"Hinweis",
+                @"Nach Python-Upgrade ggf. Ordner .audioBookConverter im Projekt löschen und bei „Python“ "
+                @"Install ausführen, um die venv neu zu erzeugen.\n");
+    } else {
+      reject(@"bad_action", @"Unbekannte Aktion.", nil);
+      return;
+    }
+  } else if ([key isEqualToString:@"pip"]) {
+    NSString *py = VenvPythonTokenOrReject(fm, venv, reject);
+    if (!py) {
+      return;
+    }
+    if (install) {
+      AppendLog(log, @"ensurepip", RunShellFull([NSString stringWithFormat:@"%@ -m ensurepip --upgrade 2>&1", py]));
+    }
+    AppendLog(log, @"pip",
+              RunShellFull([NSString stringWithFormat:@"%@ -m pip install --upgrade pip 2>&1", py]));
+  } else if ([key isEqualToString:@"ffmpeg"]) {
+    NSString *brew = BrewExecutablePath();
+    if (!brew) {
+      reject(@"no_brew", @"Homebrew nicht gefunden — ffmpeg bitte manuell installieren.", nil);
+      return;
+    }
+    NSString *bq = ShellQuotePath(brew);
+    if (install) {
+      AppendLog(log, @"ffmpeg install", RunShellFull([NSString stringWithFormat:@"%@ install ffmpeg 2>&1", bq]));
+    } else if (update) {
+      AppendLog(log, @"ffmpeg upgrade", RunShellFull([NSString stringWithFormat:@"%@ upgrade ffmpeg 2>&1", bq]));
+    } else {
+      reject(@"bad_action", @"Unbekannte Aktion.", nil);
+      return;
+    }
+  } else if ([key isEqualToString:@"fasterWhisper"]) {
+    NSString *py = VenvPythonTokenOrReject(fm, venv, reject);
+    if (!py) {
+      return;
+    }
+    if (install) {
+      AppendLog(log, @"faster-whisper install",
+                RunShellFull([NSString stringWithFormat:@"%@ -m pip install faster-whisper 2>&1", py]));
+    } else if (update) {
+      AppendLog(log, @"faster-whisper upgrade",
+                RunShellFull([NSString stringWithFormat:@"%@ -m pip install -U faster-whisper 2>&1", py]));
+    } else {
+      reject(@"bad_action", @"Unbekannte Aktion.", nil);
+      return;
+    }
+  } else {
+    reject(@"bad_key", @"Unbekannte Abhängigkeit.", nil);
+    return;
+  }
+
+  resolve(@{@"log" : [log copy]});
+}
+
+static void CountMp3FilesInDirectoryResolved(NSString *dirPath,
+                                             RCTPromiseResolveBlock resolve,
+                                             RCTPromiseRejectBlock reject)
+{
+  NSFileManager *fm = [NSFileManager defaultManager];
+  BOOL isDir = NO;
+  if (![fm fileExistsAtPath:dirPath isDirectory:&isDir]) {
+    reject(@"enoent", @"Das Verzeichnis existiert nicht.", nil);
+    return;
+  }
+  if (!isDir) {
+    reject(@"notdir", @"Der Pfad ist kein Verzeichnis.", nil);
+    return;
+  }
+  NSURL *root = [NSURL fileURLWithPath:dirPath isDirectory:YES];
+  NSDirectoryEnumerator *en =
+      [fm enumeratorAtURL:root
+        includingPropertiesForKeys:@[NSURLIsRegularFileKey]
+                   options:NSDirectoryEnumerationSkipsPackageDescendants |
+                           NSDirectoryEnumerationSkipsHiddenFiles
+              errorHandler:^BOOL(NSURL *_Nonnull url, NSError *_Nonnull error) {
+                return YES;
+              }];
+  NSUInteger count = 0;
+  for (NSURL *url in en) {
+    NSNumber *isFile = nil;
+    [url getResourceValue:&isFile forKey:NSURLIsRegularFileKey error:nil];
+    if (isFile.boolValue) {
+      NSString *lower = url.lastPathComponent.lowercaseString;
+      if ([lower hasSuffix:@".mp3"]) {
+        count++;
+      }
+    }
+  }
+  resolve(@(count));
+}
+
+static NSSet *WhisperModelSizes(void)
+{
+  return [NSSet setWithArray:@[ @"tiny", @"base", @"small", @"medium", @"large" ]];
+}
+
+static BOOL ValidateWhisperParams(NSString *modelSize,
+                                 NSString *device,
+                                 NSString *computeType,
+                                 RCTPromiseRejectBlock reject)
+{
+  NSString *ms = modelSize.lowercaseString;
+  NSString *dev = device.lowercaseString;
+  NSString *ct = computeType.lowercaseString;
+  if (![WhisperModelSizes() containsObject:ms]) {
+    reject(@"bad_model",
+           @"Ungültige Modellgröße. Erlaubt: tiny, base, small, medium, large.",
+           nil);
+    return NO;
+  }
+  if (![dev isEqualToString:@"cpu"] && ![dev isEqualToString:@"cuda"]) {
+    reject(@"bad_device", @"Ungültiges Gerät. Erlaubt: cpu, cuda.", nil);
+    return NO;
+  }
+  if (![ct isEqualToString:@"int8"]) {
+    reject(@"bad_compute", @"Nur compute_type „int8“ wird unterstützt.", nil);
+    return NO;
+  }
+  return YES;
+}
+
+static void DetectChaptersWithWhisperResolved(NSString *rootDir,
+                                           NSString *modelSize,
+                                           NSString *device,
+                                           NSString *computeType,
+                                           RCTCallableJSModules *_Nullable jsModulesForProgress,
+                                           RCTPromiseResolveBlock resolve,
+                                           RCTPromiseRejectBlock reject)
+{
+  if (!ValidateWhisperParams(modelSize, device, computeType, reject)) {
+    return;
+  }
+  NSString *ms = modelSize.lowercaseString;
+  NSString *dev = device.lowercaseString;
+  NSString *ct = computeType.lowercaseString;
+
+  NSFileManager *fm = [NSFileManager defaultManager];
+  BOOL isDir = NO;
+  if (![fm fileExistsAtPath:rootDir isDirectory:&isDir]) {
+    reject(@"enoent", @"Das Projektverzeichnis existiert nicht.", nil);
+    return;
+  }
+  if (!isDir) {
+    reject(@"notdir", @"Der Pfad ist kein Verzeichnis.", nil);
+    return;
+  }
+
+  NSString *ffmpeg = FfmpegExecutablePath();
+  if (ffmpeg == nil || ffmpeg.length == 0) {
+    reject(@"no_ffmpeg",
+           @"ffmpeg wird benötigt (erste 45 s pro MP3 für Whisper). Bitte installieren oder PATH prüfen.",
+           nil);
+    return;
+  }
+
+  NSString *venv = AppVenvRoot();
+  NSString *py = VenvPythonTokenOrReject(fm, venv, reject);
+  if (!py) {
+    return;
+  }
+  NSString *script =
+      [[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:@"whisper_chapter_scan.py"];
+  if (![fm isReadableFileAtPath:script]) {
+    reject(@"no_script", @"Datei scripts/whisper_chapter_scan.py im Projekt nicht gefunden.", nil);
+    return;
+  }
+
+  /// PYTHONUNBUFFERED: stderr-Zeilen sofort, sonst bleibt Fortschritt bis Prozessende gepuffert.
+  NSString *cmd =
+      [NSString stringWithFormat:
+           @"env PYTHONUNBUFFERED=1 %@ %@ --root-dir %@ --model-size %@ --device %@ --compute-type %@ "
+           @"--ffmpeg %@ --head-seconds 45",
+           py,
+           ShellQuotePath(script),
+           ShellQuotePath(rootDir),
+           ShellQuotePath(ms),
+           ShellQuotePath(dev),
+           ShellQuotePath(ct),
+           ShellQuotePath(ffmpeg)];
+  int status = -1;
+  NSMutableString *stderrAll = [NSMutableString string];
+  NSString *stdoutStr = RunShellSeparatingStdoutStreamingStderr(
+      cmd, stderrAll, &status, jsModulesForProgress, @"whisper");
+  NSString *stderrTxt = [stderrAll copy];
+  if (stdoutStr == nil) {
+    reject(@"run_failed", @"Whisper-Kapitelsuche konnte nicht gestartet werden (Shell-Fehler).", nil);
+    return;
+  }
+  if (status != 0) {
+    NSMutableString *detail = [NSMutableString string];
+    if (stderrTxt.length > 0) {
+      [detail appendString:stderrTxt];
+    }
+    if (detail.length == 0 && stdoutStr.length > 0) {
+      [detail appendString:stdoutStr];
+    }
+    if (detail.length == 0) {
+      [detail appendString:@"(keine Ausgabe)"];
+    }
+    if (detail.length > 2000) {
+      [detail deleteCharactersInRange:NSMakeRange(2000, detail.length - 2000)];
+      [detail appendString:@"…"];
+    }
+    reject(@"whisper_failed",
+           [NSString stringWithFormat:@"Whisper-Transkription / Kapitelsuche fehlgeschlagen:\n%@", detail],
+           nil);
+    return;
+  }
+
+  NSString *trimmed = [stdoutStr stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  NSData *jsonData = [trimmed dataUsingEncoding:NSUTF8StringEncoding];
+  if (!jsonData || trimmed.length == 0) {
+    reject(@"json", @"Antwort von whisper_chapter_scan.py konnte nicht gelesen werden.", nil);
+    return;
+  }
+  NSError *err = nil;
+  id obj = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&err];
+  if (![obj isKindOfClass:[NSDictionary class]] || err != nil) {
+    reject(@"json", @"Ungültiges JSON von whisper_chapter_scan.py.", err);
+    return;
+  }
+  NSDictionary *dict = (NSDictionary *)obj;
+  id marks = dict[@"marks"];
+  if (![marks isKindOfClass:[NSArray class]]) {
+    reject(@"json", @"JSON enthält kein „marks“-Array.", nil);
+    return;
+  }
+  resolve(dict);
+}
+
+static void CreateMergedAudiobookResolved(NSString *rootDir,
+                                         NSArray *marks,
+                                         RCTCallableJSModules *_Nullable jsModulesForProgress,
+                                         RCTPromiseResolveBlock resolve,
+                                         RCTPromiseRejectBlock reject)
+{
+  NSFileManager *fm = [NSFileManager defaultManager];
+  BOOL isDir = NO;
+  NSString *stdRoot = [rootDir stringByStandardizingPath];
+  if (![fm fileExistsAtPath:stdRoot isDirectory:&isDir]) {
+    reject(@"enoent", @"Das Projektverzeichnis existiert nicht.", nil);
+    return;
+  }
+  if (!isDir) {
+    reject(@"notdir", @"Der Pfad ist kein Verzeichnis.", nil);
+    return;
+  }
+
+  NSString *ffmpeg = FfmpegExecutablePath();
+  if (ffmpeg == nil || ffmpeg.length == 0) {
+    reject(@"no_ffmpeg", @"ffmpeg wurde nicht gefunden (PATH / Homebrew).", nil);
+    return;
+  }
+
+  NSError *jerr = nil;
+  NSDictionary *payload = @{@"marks" : (marks == nil ? @[] : marks)};
+  NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&jerr];
+  if (jsonData == nil || jerr != nil) {
+    reject(@"json", @"Kapitel-Daten konnten nicht serialisiert werden.", jerr);
+    return;
+  }
+
+  NSString *tmpJson =
+      [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"audiobook_marks_%u.json", arc4random()]];
+  if (![jsonData writeToFile:tmpJson atomically:YES]) {
+    reject(@"io", @"Temporäre JSON-Datei konnte nicht geschrieben werden.", nil);
+    return;
+  }
+
+  NSString *venv = AppVenvRoot();
+  NSString *py = VenvPythonTokenOrReject(fm, venv, reject);
+  if (!py) {
+    [fm removeItemAtPath:tmpJson error:nil];
+    return;
+  }
+
+  NSString *mergeScript =
+      [[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:@"merge_mp3_chapters.py"];
+  if (![fm isReadableFileAtPath:mergeScript]) {
+    [fm removeItemAtPath:tmpJson error:nil];
+    reject(@"no_script", @"Datei scripts/merge_mp3_chapters.py im Projekt nicht gefunden.", nil);
+    return;
+  }
+
+  NSString *outPath = [stdRoot stringByAppendingPathComponent:@"AudiobookConverter_merged.m4a"];
+
+  NSString *cmd = [NSString stringWithFormat:
+                              @"env PYTHONUNBUFFERED=1 %@ %@ --root-dir %@ --marks-json %@ --ffmpeg %@ --output %@",
+                              py,
+                              ShellQuotePath(mergeScript),
+                              ShellQuotePath(stdRoot),
+                              ShellQuotePath(tmpJson),
+                              ShellQuotePath(ffmpeg),
+                              ShellQuotePath(outPath)];
+
+  int status = -1;
+  NSMutableString *stderrAll = [NSMutableString string];
+  NSString *stdoutStr =
+      RunShellSeparatingStdoutStreamingStderr(cmd, stderrAll, &status, jsModulesForProgress, @"merge");
+  NSString *stderrTxt = [stderrAll copy];
+  [fm removeItemAtPath:tmpJson error:nil];
+
+  if (stdoutStr == nil) {
+    reject(@"run_failed", @"Zusammenführung konnte nicht gestartet werden (Shell-Fehler).", nil);
+    return;
+  }
+  if (status != 0) {
+    NSMutableString *detail = [NSMutableString string];
+    if (stderrTxt.length > 0) {
+      [detail appendString:stderrTxt];
+    }
+    if (detail.length == 0 && stdoutStr.length > 0) {
+      [detail appendString:stdoutStr];
+    }
+    if (detail.length == 0) {
+      [detail appendString:@"(keine Ausgabe)"];
+    }
+    if (detail.length > 2000) {
+      [detail deleteCharactersInRange:NSMakeRange(2000, detail.length - 2000)];
+      [detail appendString:@"…"];
+    }
+    reject(@"merge_failed", [NSString stringWithFormat:@"ffmpeg / Merge fehlgeschlagen:\n%@", detail], nil);
+    return;
+  }
+
+  if (![fm isReadableFileAtPath:outPath]) {
+    reject(@"io", @"Ausgabedatei wurde nicht erzeugt.", nil);
+    return;
+  }
+  resolve(outPath);
+}
+
+static void FinalizeM4bAudiobookResolved(NSString *mergedM4aPath,
+                                      NSString *mp3RootDirectory,
+                                      RCTPromiseResolveBlock resolve,
+                                      RCTPromiseRejectBlock reject)
+{
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSString *stdRoot = [mp3RootDirectory stringByStandardizingPath];
+  NSString *stdMerged = [mergedM4aPath stringByStandardizingPath];
+
+  BOOL isDir = NO;
+  if (![fm fileExistsAtPath:stdMerged isDirectory:&isDir]) {
+    reject(@"enoent", @"Die zusammengeführte M4A wurde nicht gefunden.", nil);
+    return;
+  }
+  if (isDir) {
+    reject(@"notfile", @"Der Pfad versteckt ein Verzeichnis, keine M4A-Datei.", nil);
+    return;
+  }
+
+  NSString *mergedParent = [stdMerged stringByDeletingLastPathComponent];
+  if (![mergedParent isEqualToString:stdRoot]) {
+    reject(
+        @"path",
+        @"Die M4A muss direkt im gewählten MP3-Ordner liegen (Projektordner der MP3-Dateien).",
+        nil);
+    return;
+  }
+
+  NSString *ffmpeg = FfmpegExecutablePath();
+  if (ffmpeg == nil || ffmpeg.length == 0) {
+    reject(@"no_ffmpeg", @"ffmpeg wurde nicht gefunden.", nil);
+    return;
+  }
+
+  NSString *destM4b = [stdRoot stringByAppendingPathComponent:@"AudiobookConverter.m4b"];
+  if ([fm fileExistsAtPath:destM4b]) {
+    NSError *rmErr = nil;
+    if (![fm removeItemAtPath:destM4b error:&rmErr]) {
+      reject(@"io", @"Vorhandene M4B konnte nicht überschrieben werden.", rmErr);
+      return;
+    }
+  }
+
+  NSString *cmd = [NSString stringWithFormat:
+                            @"%@ -y -hide_banner -loglevel error -i %@ -c copy -metadata genre=%@ %@",
+                            ShellQuotePath(ffmpeg),
+                            ShellQuotePath(stdMerged),
+                            ShellQuotePath(@"Audiobook"),
+                            ShellQuotePath(destM4b)];
+
+  int status = -1;
+  NSString *stderrTxt = nil;
+  NSString *stdoutStr = RunShellSeparatingStdout(cmd, &stderrTxt, &status);
+  (void)stdoutStr;
+
+  if (status != 0) {
+    NSString *detail = stderrTxt.length > 0 ? stderrTxt : @"(ffmpeg)";
+    if (detail.length > 2000) {
+      detail = [[detail substringToIndex:2000] stringByAppendingString:@"…"];
+    }
+    reject(@"m4b_failed", [NSString stringWithFormat:@"M4B-Erzeugung fehlgeschlagen:\n%@", detail], nil);
+    return;
+  }
+
+  if (![fm isReadableFileAtPath:destM4b]) {
+    reject(@"io", @"M4B wurde nicht erzeugt.", nil);
+    return;
+  }
+
+  NSError *delErr = nil;
+  if (![fm removeItemAtPath:stdMerged error:&delErr]) {
+    reject(@"io",
+           [NSString stringWithFormat:@"M4B ist erzeugt, die Quell-M4A konnte nicht gelöscht werden: %@",
+                                      delErr.localizedDescription],
+           delErr);
+    return;
+  }
+
+  resolve(destM4b);
+}
+
+@implementation DependencyStatus
+
+RCT_EXPORT_MODULE();
+
+@synthesize callableJSModules = _callableJSModules;
+
++ (BOOL)requiresMainQueueSetup
+{
+  return NO;
+}
+
+RCT_REMAP_METHOD(countMp3FilesInDirectory,
+                 countMp3FilesInDirectory:(NSString *)dirPath
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  if (dirPath.length == 0) {
+    reject(@"empty", @"Kein Verzeichnis angegeben.", nil);
+    return;
+  }
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    CountMp3FilesInDirectoryResolved(dirPath, resolve, reject);
+  });
+}
+
+RCT_REMAP_METHOD(detectChaptersWithWhisper,
+                 detectChaptersWithWhisper:(NSString *)rootDirectory
+                 modelSize:(NSString *)modelSize
+                 device:(NSString *)device
+                 computeType:(NSString *)computeType
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  if (rootDirectory.length == 0 || modelSize.length == 0 || device.length == 0 ||
+      computeType.length == 0) {
+    reject(@"empty", @"rootDirectory, modelSize, device und computeType sind erforderlich.", nil);
+    return;
+  }
+  RCTCallableJSModules *progressJS = self.callableJSModules;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    DetectChaptersWithWhisperResolved(
+        rootDirectory, modelSize, device, computeType, progressJS, resolve, reject);
+  });
+}
+
+RCT_REMAP_METHOD(createMergedAudiobookWithChapters,
+                 createMergedAudiobookWithChapters:(NSString *)rootDirectory
+                 marks:(NSArray *)marks
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  if (rootDirectory.length == 0) {
+    reject(@"empty", @"rootDirectory ist erforderlich.", nil);
+    return;
+  }
+  RCTCallableJSModules *progressJS = self.callableJSModules;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    CreateMergedAudiobookResolved(rootDirectory, marks, progressJS, resolve, reject);
+  });
+}
+
+RCT_REMAP_METHOD(createM4bAudiobook,
+                 createM4bAudiobook:(NSString *)mergedM4aPath
+                 mp3RootDirectory:(NSString *)mp3RootDirectory
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  if (mergedM4aPath.length == 0 || mp3RootDirectory.length == 0) {
+    reject(@"empty", @"mergedM4aPath und mp3RootDirectory sind erforderlich.", nil);
+    return;
+  }
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    FinalizeM4bAudiobookResolved(mergedM4aPath, mp3RootDirectory, resolve, reject);
+  });
+}
+
+RCT_REMAP_METHOD(checkAll, checkAllWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+{
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    NSString *py = PythonExecutableToken(AppVenvRoot());
+    NSDictionary *result = @{
+      @"python" : CheckPython(py),
+      @"pip" : CheckPip(py),
+      @"ffmpeg" : CheckFfmpeg(),
+      @"fasterWhisper" : CheckFasterWhisper(py),
+      @"venvRoot" : AppVenvRoot(),
+    };
+    resolve(result);
+  });
+}
+
+RCT_REMAP_METHOD(runSingleDependencyAction,
+                 runSingleDependencyAction:(NSString *)key
+                 action:(NSString *)action
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    NSMutableString *log = [NSMutableString string];
+    RunSingleDependency(key, action, log, resolve, reject);
+  });
+}
+
+@end
