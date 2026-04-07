@@ -11,7 +11,7 @@ Diese Datei ergänzt das Repo für **neue Maschinen** und **neue Chat-Sessions**
 | `AGENTS.md` | Kurzverweis für Agenten/Assistenten. |
 | `scripts/whisper_chapter_scan.py` | Schritt 2: Whisper, 45 s Kopf, Log `AudiobookConverter_kapitel.log`. |
 | `scripts/merge_mp3_chapters.py` | Schritt 3: MP3-Merge, Kapitel-Metadaten, AAC 48k. |
-| `src/conversionPipeline.ts` | Pipeline-Schritte 1–4 und native Aufrufe. |
+| `src/utils/conversionPipeline.ts` | Pipeline-Schritte 1–4 und native Aufrufe. |
 | `macos/.../DependencyStatus.mm` | Native Bridge (ffmpeg-Pfade, venv-Python, RCT-Methoden). |
 
 ## Nur auf deinem Account / Rechner (nicht im Repo)
@@ -26,7 +26,7 @@ Diese Datei ergänzt das Repo für **neue Maschinen** und **neue Chat-Sessions**
 ## Plattformen
 
 - **macOS:** Vollständiger Pfad: native Methoden + Skripte wie oben.
-- **Windows / Linux:** Gleiche **Skripte** sind nutzbar, wenn `ffmpeg`/`ffprobe` und Python-Umgebung passen; **React-Native-Bridge-Methoden** aus `DependencyStatus.mm` müssen für die jeweilige Plattform portiert oder durch z. B. CLI/Spawn aus JS ersetzt werden. `conversionPipeline.ts` prüft derzeit `Platform.OS === 'macos'` für die nativen Schritte.
+- **Windows / Linux:** Gleiche **Skripte** sind nutzbar, wenn `ffmpeg`/`ffprobe` und Python-Umgebung passen; **React-Native-Bridge-Methoden** aus `DependencyStatus.mm` müssen für die jeweilige Plattform portiert oder durch z. B. CLI/Spawn aus JS ersetzt werden. `src/utils/conversionPipeline.ts` prüft derzeit `Platform.OS === 'macos'` für die nativen Schritte.
 
 ## Kurz-Checkliste neuer Rechner
 

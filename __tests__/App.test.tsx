@@ -12,10 +12,10 @@ jest.mock('../src/components/DependencyStatusPanel', () => ({
   DependencyStatusPanel: () => null,
 }));
 
-import App from '../App';
+import App from '../src/App';
 
 // Note: import explicitly to use the types shipped with jest.
-import {it} from '@jest/globals';
+import {it, jest} from '@jest/globals';
 
 // Note: test renderer must be required after react-native.
 import renderer, {act} from 'react-test-renderer';

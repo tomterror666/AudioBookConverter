@@ -11,7 +11,9 @@ export type DependencyStatuses = {
 
 export type DependencyKey = keyof DependencyStatuses;
 
-export function allDependencyLedsGreen(statuses: DependencyStatuses | null): boolean {
+export function allDependencyLedsGreen(
+  statuses: DependencyStatuses | null,
+): boolean {
   if (!statuses) {
     return false;
   }

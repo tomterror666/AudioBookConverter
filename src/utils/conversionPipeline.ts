@@ -1,4 +1,4 @@
-import {Alert, NativeModules, Platform} from 'react-native';
+import {NativeModules, Platform} from 'react-native';
 
 export class ConversionCancelledError extends Error {
   constructor() {
@@ -164,29 +164,9 @@ async function nativeCreateM4bAudiobook(
   return out;
 }
 
-/**
- * 1. MP3-Dateien im Projektordner rekursiv zählen, Ergebnis im Dialog;
- * „Weiter“ setzt fort, „Abbrechen“ bricht die Konvertierung ab.
- * @returns Anzahl MP3 nach Bestätigung durch Warnhinweis
- */
+/** 1. MP3-Dateien im Projektordner rekursiv zählen. */
 export async function countMp3Files(rootDirectory: string): Promise<number> {
-  const count = await nativeCountMp3Files(rootDirectory);
-  await new Promise<void>((resolve, reject) => {
-    Alert.alert(
-      'MP3-Dateien',
-      `Im ausgewählten Ordner wurden ${count} MP3-Datei(en) gefunden (inkl. Unterordner).`,
-      [
-        {text: 'Weiter', onPress: () => resolve()},
-        {
-          text: 'Abbrechen',
-          style: 'cancel',
-          onPress: () => reject(new ConversionCancelledError()),
-        },
-      ],
-      {cancelable: false},
-    );
-  });
-  return count;
+  return nativeCountMp3Files(rootDirectory);
 }
 
 export type LocateChaptersOptions = {

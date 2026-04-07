@@ -1,4 +1,5 @@
 #import <React/RCTBridgeModule.h>
+#import <AppKit/AppKit.h>
 
 @interface DependencyStatus : NSObject <RCTBridgeModule>
 @end
@@ -322,6 +323,35 @@ static int ParseFirstIntAfterDot(NSString *versionTail)
   return [parts[0] intValue];
 }
 
+/// faster-whisper ist in der Praxis auf macOS mit Python 3.10-3.12 am stabilsten.
+static BOOL IsSupportedPythonForFasterWhisper(int major, int minor)
+{
+  if (major != 3) {
+    return NO;
+  }
+  return minor >= 10 && minor <= 12;
+}
+
+/// Für venv-Erzeugung bevorzugte Interpreter (falls vorhanden), sonst Fallback "python3".
+static NSString *PreferredSystemPythonForVenv(void)
+{
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSArray<NSString *> *candidates = @[
+    @"/opt/homebrew/bin/python3.12",
+    @"/usr/local/bin/python3.12",
+    @"/opt/homebrew/bin/python3.11",
+    @"/usr/local/bin/python3.11",
+    @"/opt/homebrew/bin/python3.10",
+    @"/usr/local/bin/python3.10",
+  ];
+  for (NSString *p in candidates) {
+    if ([fm isExecutableFileAtPath:p]) {
+      return ShellQuotePath(p);
+    }
+  }
+  return @"python3";
+}
+
 static NSString *CheckPython(NSString *pyExe)
 {
   NSString *cmd = [NSString stringWithFormat:@"%@ --version 2>&1", pyExe];
@@ -344,7 +374,7 @@ static NSString *CheckPython(NSString *pyExe)
   }
   int major = [segs[0] intValue];
   int minor = [segs[1] intValue];
-  if (major > 3 || (major == 3 && minor >= 9)) {
+  if (IsSupportedPythonForFasterWhisper(major, minor)) {
     return @"ok";
   }
   return @"wrong_version";
@@ -498,8 +528,10 @@ static void RunSingleDependency(NSString *key,
       if ([fm isExecutableFileAtPath:py3path]) {
         AppendLog(log, @"Python", @"venv existiert bereits.\n");
       } else {
+        NSString *venvPython = PreferredSystemPythonForVenv();
         NSString *createCmd =
-            [NSString stringWithFormat:@"python3 -m venv %@", ShellQuotePath(venv)];
+            [NSString stringWithFormat:@"%@ -m venv %@", venvPython, ShellQuotePath(venv)];
+        AppendLog(log, @"venv Python", [NSString stringWithFormat:@"%@\n", venvPython]);
         AppendLog(log, @"venv anlegen", RunShellFull(createCmd));
         if (![fm isExecutableFileAtPath:py3path]) {
           reject(@"python",
@@ -1003,6 +1035,37 @@ RCT_REMAP_METHOD(createM4bAudiobook,
   }
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     FinalizeM4bAudiobookResolved(mergedM4aPath, mp3RootDirectory, resolve, reject);
+  });
+}
+
+RCT_REMAP_METHOD(selectDirectory,
+                 selectDirectoryWithResolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = NO;
+    panel.canChooseDirectories = YES;
+    panel.allowsMultipleSelection = NO;
+    panel.canCreateDirectories = YES;
+    panel.prompt = @"Choose";
+
+    NSModalResponse response = [panel runModal];
+    if (response == NSModalResponseOK) {
+      NSURL *url = panel.URL;
+      NSString *path = url.path;
+      if (path.length > 0) {
+        resolve(path);
+        return;
+      }
+      resolve([NSNull null]);
+      return;
+    }
+    if (response == NSModalResponseCancel) {
+      resolve([NSNull null]);
+      return;
+    }
+    reject(@"open_panel_failed", @"Verzeichnisauswahl fehlgeschlagen.", nil);
   });
 }
 

@@ -6,10 +6,10 @@
 
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
-  Alert,
   DeviceEventEmitter,
   GestureResponderEvent,
   LayoutChangeEvent,
+  NativeModules,
   Platform,
   Pressable,
   SafeAreaView,
@@ -19,20 +19,26 @@ import {
   View,
 } from 'react-native';
 import {openFolder} from 'react-native-file-panel';
-import {DependencyStatusPanel} from './src/components/DependencyStatusPanel';
+import {DependencyStatusPanel} from './components/DependencyStatusPanel';
+import {Box} from './components/ui/Box';
+import {Button, ButtonVariant} from './components/ui/Button';
+import {Label, LabelAlign, LabelVariant} from './components/ui/Label';
+import {Modal} from './components/ui/Modal';
+import {Size} from './components/ui/constants';
 import {
   allDependencyLedsGreen,
   type DependencyCheckResult,
   type DependencyStatuses,
-} from './src/dependencyStatus';
-import {isCudaDeviceSupportedOnThisPlatform} from './src/deviceCudaSupport';
+} from './utils/dependencyStatus';
+import {isCudaDeviceSupportedOnThisPlatform} from './utils/deviceCudaSupport';
 import {
+  ConversionCancelledError,
   countMp3Files,
   createAudiobookFile,
   createMp4WithChapterMarkers,
   isConversionCancelled,
   locateChapters,
-} from './src/conversionPipeline';
+} from './utils/conversionPipeline';
 
 const TRACK_HEIGHT = 6;
 const THUMB_SIZE = 24;
@@ -47,6 +53,10 @@ const CONVERSION_STEP_TITLES: Record<number, string> = {
   2: 'Kapitelpositionen ermitteln',
   3: 'Kapitel in die M4A einbetten',
   4: 'Audiobook (M4B) erstellen',
+};
+
+type DependencyStatusNativeModule = {
+  selectDirectory?: () => Promise<string | null>;
 };
 
 function App(): React.JSX.Element {
@@ -76,9 +86,150 @@ function App(): React.JSX.Element {
   const [dependencyStatuses, setDependencyStatuses] =
     useState<DependencyStatuses | null>(null);
   const trackLayout = useRef({width: 300});
+  const [mp3ConfirmVisible, setMp3ConfirmVisible] = useState(false);
+  const [pendingMp3Count, setPendingMp3Count] = useState<number | null>(null);
+  const mp3ConfirmResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  const [step2SummaryVisible, setStep2SummaryVisible] = useState(false);
+  const [step2SummaryContent, setStep2SummaryContent] = useState('');
+  const step2SummaryResolver = useRef<(() => void) | null>(null);
+  const [step3SummaryVisible, setStep3SummaryVisible] = useState(false);
+  const [step3SummaryContent, setStep3SummaryContent] = useState('');
+  const step3SummaryResolver = useRef<(() => void) | null>(null);
+  const [step4SuccessVisible, setStep4SuccessVisible] = useState(false);
+  const [step4SuccessContent, setStep4SuccessContent] = useState('');
+  const step4SuccessResolver = useRef<(() => void) | null>(null);
+  const [infoVisible, setInfoVisible] = useState(false);
+  const [infoHeadline, setInfoHeadline] = useState('');
+  const [infoContent, setInfoContent] = useState('');
+  const [selectionVisible, setSelectionVisible] = useState(false);
+  const [selectionHeadline, setSelectionHeadline] = useState('');
+  const [selectionContent, setSelectionContent] = useState('');
+  const [selectionOptions, setSelectionOptions] = useState<string[]>([]);
+  const selectionResolver = useRef<((value: string | null) => void) | null>(null);
 
   const onDependencyCheckResult = useCallback((result: DependencyCheckResult) => {
     setDependencyStatuses(result.statuses);
+  }, []);
+
+  const askMp3CountConfirmation = useCallback(
+    (count: number): Promise<boolean> =>
+      new Promise(resolve => {
+        setPendingMp3Count(count);
+        setMp3ConfirmVisible(true);
+        mp3ConfirmResolver.current = resolve;
+      }),
+    [],
+  );
+
+  const resolveMp3CountConfirmation = useCallback((confirmed: boolean) => {
+    const resolver = mp3ConfirmResolver.current;
+    mp3ConfirmResolver.current = null;
+    setMp3ConfirmVisible(false);
+    setPendingMp3Count(null);
+    resolver?.(confirmed);
+  }, []);
+
+  const askStep2Summary = useCallback(
+    (chapterCount: number, chapterLabels: string[]): Promise<void> =>
+      new Promise(resolve => {
+        const shown = chapterLabels.slice(0, 12);
+        const remaining = Math.max(0, chapterLabels.length - shown.length);
+        const listPart =
+          shown.length > 0 ? `\n\n${shown.map(l => `• ${l}`).join('\n')}` : '';
+        const morePart = remaining > 0 ? `\n… und ${remaining} weitere` : '';
+        setStep2SummaryContent(
+          `Es wurden ${chapterCount} Kapitel erkannt.${listPart}${morePart}`,
+        );
+        setStep2SummaryVisible(true);
+        step2SummaryResolver.current = resolve;
+      }),
+    [],
+  );
+
+  const resolveStep2Summary = useCallback(() => {
+    const resolver = step2SummaryResolver.current;
+    step2SummaryResolver.current = null;
+    setStep2SummaryVisible(false);
+    setStep2SummaryContent('');
+    resolver?.();
+  }, []);
+
+  const askStep3Summary = useCallback(
+    (mergedPath: string): Promise<void> =>
+      new Promise(resolve => {
+        setStep3SummaryContent(
+          `Schritt 3 abgeschlossen.\n\nZusammengeführte Datei:\n${mergedPath}`,
+        );
+        setStep3SummaryVisible(true);
+        step3SummaryResolver.current = resolve;
+      }),
+    [],
+  );
+
+  const resolveStep3Summary = useCallback(() => {
+    const resolver = step3SummaryResolver.current;
+    step3SummaryResolver.current = null;
+    setStep3SummaryVisible(false);
+    setStep3SummaryContent('');
+    resolver?.();
+  }, []);
+
+  const showStep4Success = useCallback(
+    (m4bPath: string): Promise<void> =>
+      new Promise(resolve => {
+        setStep4SuccessContent(
+          `Die Konvertierung ist abgeschlossen.\n\nAudiobook (M4B):\n${m4bPath}`,
+        );
+        setStep4SuccessVisible(true);
+        step4SuccessResolver.current = resolve;
+      }),
+    [],
+  );
+
+  const resolveStep4Success = useCallback(() => {
+    const resolver = step4SuccessResolver.current;
+    step4SuccessResolver.current = null;
+    setStep4SuccessVisible(false);
+    setStep4SuccessContent('');
+    resolver?.();
+  }, []);
+
+  const showInfoModal = useCallback((headline: string, content: string) => {
+    setInfoHeadline(headline);
+    setInfoContent(content);
+    setInfoVisible(true);
+  }, []);
+
+  const closeInfoModal = useCallback(() => {
+    setInfoVisible(false);
+    setInfoHeadline('');
+    setInfoContent('');
+  }, []);
+
+  const askSelection = useCallback(
+    (
+      headline: string,
+      content: string,
+      options: readonly string[],
+    ): Promise<string | null> =>
+      new Promise(resolve => {
+        setSelectionHeadline(headline);
+        setSelectionContent(content);
+        setSelectionOptions([...options]);
+        setSelectionVisible(true);
+        selectionResolver.current = resolve;
+      }),
+    [],
+  );
+
+  const resolveSelection = useCallback((value: string | null) => {
+    const resolver = selectionResolver.current;
+    selectionResolver.current = null;
+    setSelectionVisible(false);
+    setSelectionHeadline('');
+    setSelectionContent('');
+    setSelectionOptions([]);
+    resolver?.(value);
   }, []);
 
   const step2SliderProgress =
@@ -176,19 +327,30 @@ function App(): React.JSX.Element {
 
   const handleVerzeichnisPress = async () => {
     try {
-      if (Platform.OS === 'macos' || Platform.OS === 'windows') {
+      if (Platform.OS === 'macos') {
+        const mod = NativeModules.DependencyStatus as
+          | DependencyStatusNativeModule
+          | undefined;
+        const path =
+          typeof mod?.selectDirectory === 'function'
+            ? await mod.selectDirectory()
+            : null;
+        if (path) {
+          setSelectedDirectory(path);
+        }
+      } else if (Platform.OS === 'windows') {
         const path = await openFolder();
         if (path) {
           setSelectedDirectory(path);
         }
       } else {
-        Alert.alert(
+        showInfoModal(
           'Nicht unterstützt',
           'Der Verzeichnis-Dialog wird nur auf macOS und Windows unterstützt.',
         );
       }
     } catch (error) {
-      Alert.alert(
+      showInfoModal(
         'Fehler',
         'Verzeichnis konnte nicht ausgewählt werden: ' +
           (error instanceof Error ? error.message : String(error)),
@@ -196,26 +358,26 @@ function App(): React.JSX.Element {
     }
   };
 
-  const handleModePress = () => {
-    Alert.alert(
+  const handleModePress = async () => {
+    const picked = await askSelection(
       'Mode wählen',
       'Bitte wählen Sie einen Modus',
-      MODE_OPTIONS.map(mode => ({
-        text: mode,
-        onPress: () => setSelectedMode(mode),
-      })),
+      MODE_OPTIONS,
     );
+    if (picked) {
+      setSelectedMode(picked);
+    }
   };
 
-  const handleDevicePress = () => {
-    Alert.alert(
+  const handleDevicePress = async () => {
+    const picked = await askSelection(
       'Device wählen',
       'Bitte wählen Sie ein Gerät',
-      DEVICE_OPTIONS.map(device => ({
-        text: device,
-        onPress: () => setSelectedDevice(device),
-      })),
+      DEVICE_OPTIONS,
     );
+    if (picked) {
+      setSelectedDevice(picked);
+    }
   };
 
   const formComplete =
@@ -253,10 +415,9 @@ function App(): React.JSX.Element {
       missing.push('Device');
     }
     if (missing.length > 0) {
-      Alert.alert(
+      showInfoModal(
         'Angaben unvollständig',
         `Bitte wählen Sie noch:\n${missing.map(m => `• ${m}`).join('\n')}`,
-        [{text: 'OK'}],
       );
       return;
     }
@@ -270,7 +431,7 @@ function App(): React.JSX.Element {
         Platform.OS === 'macos'
           ? 'Auf macOS steht kein CUDA-Gerät (NVIDIA) zur Verfügung. Bitte wählen Sie „cpu“.'
           : 'CUDA wird auf dieser Plattform nicht unterstützt. Bitte wählen Sie „cpu“.';
-      Alert.alert('CUDA nicht verfügbar', cudaBody, [{text: 'OK'}]);
+      showInfoModal('CUDA nicht verfügbar', cudaBody);
       return;
     }
 
@@ -279,6 +440,10 @@ function App(): React.JSX.Element {
       try {
         setConversionStep(1);
         const mp3Count = await countMp3Files(selectedDirectory!.trim());
+        const confirmed = await askMp3CountConfirmation(mp3Count);
+        if (!confirmed) {
+          throw new ConversionCancelledError();
+        }
         setMp3FileTotal(mp3Count);
         setConversionStep(2);
         setWhisperMp3Done(0);
@@ -289,6 +454,10 @@ function App(): React.JSX.Element {
           device: selectedDevice!.trim().toLowerCase(),
         });
         setProgress(1);
+        await askStep2Summary(
+          chapterMarks.marks.length,
+          chapterMarks.marks.map(mark => mark.label),
+        );
         setConversionStep(3);
         setMergeProgressDone(0);
         setMergeProgressTotal(0);
@@ -300,23 +469,18 @@ function App(): React.JSX.Element {
           selectedDirectory!.trim(),
           chapterMarks,
         );
+        await askStep3Summary(mergedPath);
         setConversionStep(4);
         const m4bPath = await createAudiobookFile(
           mergedPath,
           selectedDirectory!.trim(),
         );
-        Alert.alert(
-          'Erfolg',
-          `Die Konvertierung ist abgeschlossen.\n\nAudiobook (M4B):\n${m4bPath}`,
-          [{text: 'OK'}],
-        );
+        await showStep4Success(m4bPath);
       } catch (e) {
         if (isConversionCancelled(e)) {
           return;
         }
-        Alert.alert('Fehler', e instanceof Error ? e.message : String(e), [
-          {text: 'OK'},
-        ]);
+        showInfoModal('Fehler', e instanceof Error ? e.message : String(e));
       } finally {
         setConversionStep(0);
         setMp3FileTotal(null);
@@ -335,7 +499,13 @@ function App(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainColumn}>
-        <Text style={styles.title}>AudioBookConverter</Text>
+        <Box padding={{block: Size.size_32}}>
+          <Label
+            title="AudioBookConverter"
+            variant={LabelVariant.Header1}
+            align={LabelAlign.Center}
+          />
+        </Box>
         <ScrollView
           style={styles.mainScroll}
           contentContainerStyle={styles.mainScrollContent}
@@ -345,11 +515,13 @@ function App(): React.JSX.Element {
             <View style={styles.formColumn}>
               <View style={styles.buttonContainer}>
                 <View style={styles.verzeichnisRow}>
-                  <Pressable
-                    style={styles.button}
-                    onPress={handleVerzeichnisPress}>
-                    <Text style={styles.buttonText}>Verzeichnis</Text>
-                  </Pressable>
+                  <View style={styles.fieldLabelContainer}>
+                    <Label
+                      title="Verzeichnis:"
+                      variant={LabelVariant.NormalBold}
+                      align={LabelAlign.Left}
+                    />
+                  </View>
                   <Pressable
                     style={styles.pathInputWrapper}
                     onPress={handleVerzeichnisPress}>
@@ -367,11 +539,13 @@ function App(): React.JSX.Element {
                   </Pressable>
                 </View>
                 <View style={styles.modeRow}>
-                  <Pressable
-                    style={[styles.button, styles.buttonMode]}
-                    onPress={handleModePress}>
-                    <Text style={styles.buttonText}>Mode</Text>
-                  </Pressable>
+                  <View style={styles.fieldLabelContainer}>
+                    <Label
+                      title="Mode:"
+                      variant={LabelVariant.NormalBold}
+                      align={LabelAlign.Left}
+                    />
+                  </View>
                   <Pressable
                     style={styles.modeInputWrapper}
                     onPress={handleModePress}>
@@ -387,11 +561,13 @@ function App(): React.JSX.Element {
                   </Pressable>
                 </View>
                 <View style={styles.deviceRow}>
-                  <Pressable
-                    style={[styles.button, styles.buttonDevice]}
-                    onPress={handleDevicePress}>
-                    <Text style={styles.buttonText}>Device</Text>
-                  </Pressable>
+                  <View style={styles.fieldLabelContainer}>
+                    <Label
+                      title="Device:"
+                      variant={LabelVariant.NormalBold}
+                      align={LabelAlign.Left}
+                    />
+                  </View>
                   <Pressable
                     style={styles.deviceInputWrapper}
                     onPress={handleDevicePress}>
@@ -406,22 +582,14 @@ function App(): React.JSX.Element {
                     </View>
                   </Pressable>
                 </View>
-                <Pressable
-                  style={[
-                    styles.button,
-                    styles.buttonStart,
-                    startLooksInactive && styles.buttonStartDisabled,
-                  ]}
-                  disabled={startLooksInactive}
-                  onPress={handleStartPress}>
-                  <Text
-                    style={[
-                      styles.buttonText,
-                      startLooksInactive && styles.buttonStartTextDisabled,
-                    ]}>
+                <View style={styles.startButtonWrapper}>
+                  <Button
+                    variant={ButtonVariant.Primary}
+                    disabled={startLooksInactive}
+                    onPress={handleStartPress}>
                     Start
-                  </Text>
-                </Pressable>
+                  </Button>
+                </View>
               </View>
             </View>
             <View style={styles.statusAside}>
@@ -486,6 +654,96 @@ function App(): React.JSX.Element {
           </Pressable>
         </View>
       </View>
+      <Modal
+        visible={mp3ConfirmVisible}
+        headline="MP3-Dateien"
+        content={`Im ausgewählten Ordner wurden ${
+          pendingMp3Count ?? 0
+        } MP3-Datei(en) gefunden (inkl. Unterordner).`}
+        buttonConfig={[
+          {
+            label: 'Abbrechen',
+            variant: ButtonVariant.Secondary,
+            onPress: () => resolveMp3CountConfirmation(false),
+          },
+          {
+            label: 'Weiter',
+            variant: ButtonVariant.Primary,
+            onPress: () => resolveMp3CountConfirmation(true),
+          },
+        ]}
+        onRequestClose={() => resolveMp3CountConfirmation(false)}>
+      </Modal>
+      <Modal
+        visible={step2SummaryVisible}
+        headline="Kapitel gefunden"
+        content={step2SummaryContent}
+        buttonConfig={[
+          {
+            label: 'Weiter',
+            variant: ButtonVariant.Primary,
+            onPress: () => resolveStep2Summary(),
+          },
+        ]}
+        onRequestClose={() => resolveStep2Summary()}
+      />
+      <Modal
+        visible={step3SummaryVisible}
+        headline="Schritt 3 abgeschlossen"
+        content={step3SummaryContent}
+        buttonConfig={[
+          {
+            label: 'Weiter',
+            variant: ButtonVariant.Primary,
+            onPress: () => resolveStep3Summary(),
+          },
+        ]}
+        onRequestClose={() => resolveStep3Summary()}
+      />
+      <Modal
+        visible={step4SuccessVisible}
+        headline="Erfolg"
+        content={step4SuccessContent}
+        buttonConfig={[
+          {
+            label: 'OK',
+            variant: ButtonVariant.Primary,
+            onPress: () => resolveStep4Success(),
+          },
+        ]}
+        onRequestClose={() => resolveStep4Success()}
+      />
+      <Modal
+        visible={infoVisible}
+        headline={infoHeadline}
+        content={infoContent}
+        buttonConfig={[
+          {
+            label: 'OK',
+            variant: ButtonVariant.Primary,
+            onPress: closeInfoModal,
+          },
+        ]}
+        onRequestClose={closeInfoModal}
+      />
+      <Modal
+        visible={selectionVisible}
+        headline={selectionHeadline}
+        content={selectionContent}
+        buttonConfig={[
+          ...selectionOptions.map(option => ({
+            label: option,
+            variant: ButtonVariant.Secondary,
+            onPress: () => resolveSelection(option),
+          })),
+          {
+            label: 'Abbrechen',
+            variant: ButtonVariant.Primary,
+            onPress: () => resolveSelection(null),
+          },
+        ]}
+        onRequestClose={() => resolveSelection(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -527,13 +785,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     alignItems: 'flex-start',
   },
-  title: {
-    fontSize: 32,
-    fontWeight: '600',
-    color: '#000000',
-    alignSelf: 'center',
-    marginTop: 20,
-  },
   buttonContainer: {
     marginLeft: FORM_EDGE_MARGIN,
     marginTop: 0,
@@ -542,6 +793,10 @@ const styles = StyleSheet.create({
   verzeichnisRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  fieldLabelContainer: {
+    width: 130,
+    justifyContent: 'center',
   },
   modeRow: {
     flexDirection: 'row',
@@ -584,31 +839,8 @@ const styles = StyleSheet.create({
   pathInputPlaceholder: {
     color: '#999999',
   },
-  button: {
-    width: 130,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    backgroundColor: '#007AFF',
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonMode: {},
-  buttonDevice: {},
-  buttonStart: {
+  startButtonWrapper: {
     marginTop: 64,
-    backgroundColor: '#34C759',
-  },
-  buttonStartDisabled: {
-    backgroundColor: '#8E8E93',
-  },
-  buttonStartTextDisabled: {
-    color: '#F2F2F7',
-  },
-  buttonText: {
-    fontSize: 16,
-    color: '#ffffff',
-    fontWeight: '500',
-    textAlign: 'center',
   },
   sliderContainer: {
     alignSelf: 'stretch',

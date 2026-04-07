@@ -1,13 +1,14 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {ButtonVariant} from './ui/Button';
+import {Modal} from './ui/Modal';
 import {
   DependencyCheckResult,
   DependencyKey,
@@ -15,7 +16,7 @@ import {
   DependencyStatuses,
   runDependencyChecks,
   runSingleDependencyAction,
-} from '../dependencyStatus';
+} from '../utils/dependencyStatus';
 
 const LED_COLORS: Record<DependencyLedStatus, string> = {
   missing: '#FF3B30',
@@ -41,6 +42,9 @@ export function DependencyStatusPanel(
   const [statuses, setStatuses] = useState<DependencyStatuses | null>(null);
   const [venvPathDisplay, setVenvPathDisplay] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<DependencyKey | null>(null);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [feedbackHeadline, setFeedbackHeadline] = useState('');
+  const [feedbackContent, setFeedbackContent] = useState('');
 
   const refresh = useCallback(() => {
     runDependencyChecks().then(({statuses: next, venvPathDisplay: path}) => {
@@ -61,13 +65,13 @@ export function DependencyStatusPanel(
       await refresh();
       const preview =
         log.length > 1400 ? `${log.slice(0, 1400)}…` : log || '(fertig)';
-      Alert.alert(mode === 'install' ? 'Install' : 'Update', preview, [
-        {text: 'OK'},
-      ]);
+      setFeedbackHeadline(mode === 'install' ? 'Install' : 'Update');
+      setFeedbackContent(preview);
+      setFeedbackVisible(true);
     } catch (e) {
-      Alert.alert('Fehler', e instanceof Error ? e.message : String(e), [
-        {text: 'OK'},
-      ]);
+      setFeedbackHeadline('Fehler');
+      setFeedbackContent(e instanceof Error ? e.message : String(e));
+      setFeedbackVisible(true);
     } finally {
       setBusyKey(null);
     }
@@ -135,6 +139,19 @@ export function DependencyStatusPanel(
           </View>
         );
       })}
+      <Modal
+        visible={feedbackVisible}
+        headline={feedbackHeadline}
+        content={feedbackContent}
+        buttonConfig={[
+          {
+            label: 'OK',
+            variant: ButtonVariant.Primary,
+            onPress: () => setFeedbackVisible(false),
+          },
+        ]}
+        onRequestClose={() => setFeedbackVisible(false)}
+      />
     </View>
   );
 }
