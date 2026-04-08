@@ -1,6 +1,6 @@
-import React from 'react';
-import {View, ViewStyle} from 'react-native';
-import {Size, SizePx} from '../constants';
+import React from "react";
+import { View, ViewStyle } from "react-native";
+import { Size, SizePx } from "../../../constants";
 
 type SpacingValue = Size;
 type SpacingObject = {
@@ -20,23 +20,23 @@ type BoxProps = {
 };
 
 export function Box(props: BoxProps): React.JSX.Element {
-  const {children, padding, margin} = props;
+  const { children, padding, margin } = props;
 
   const spacingToStyle = (
-    kind: 'padding' | 'margin',
+    kind: "padding" | "margin",
     value: SpacingProp | undefined,
   ): ViewStyle => {
     if (!value) {
       return {};
     }
-    if (typeof value === 'string') {
-      return {[kind]: SizePx[value]};
+    if (typeof value === "string") {
+      return { [kind]: SizePx[value] };
     }
     return {
-      ...(value.top ? {[`${kind}Top`]: SizePx[value.top]} : null),
-      ...(value.bottom ? {[`${kind}Bottom`]: SizePx[value.bottom]} : null),
-      ...(value.left ? {[`${kind}Left`]: SizePx[value.left]} : null),
-      ...(value.right ? {[`${kind}Right`]: SizePx[value.right]} : null),
+      ...(value.top ? { [`${kind}Top`]: SizePx[value.top] } : null),
+      ...(value.bottom ? { [`${kind}Bottom`]: SizePx[value.bottom] } : null),
+      ...(value.left ? { [`${kind}Left`]: SizePx[value.left] } : null),
+      ...(value.right ? { [`${kind}Right`]: SizePx[value.right] } : null),
       ...(value.inline
         ? {
             [`${kind}Left`]: SizePx[value.inline],
@@ -53,8 +53,8 @@ export function Box(props: BoxProps): React.JSX.Element {
   };
 
   const style: ViewStyle = {
-    ...spacingToStyle('padding', padding),
-    ...spacingToStyle('margin', margin),
+    ...spacingToStyle("padding", padding),
+    ...spacingToStyle("margin", margin),
   };
 
   return <View style={style}>{children}</View>;

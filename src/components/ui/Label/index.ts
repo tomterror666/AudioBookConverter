@@ -1,1 +1,1 @@
-export {Label, LabelAlign, LabelVariant} from './Label';
+export { Label, LabelAlign, LabelVariant } from "./Label";

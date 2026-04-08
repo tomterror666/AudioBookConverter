@@ -1,29 +1,32 @@
-import React from 'react';
-import {StyleSheet, Text, TextStyle} from 'react-native';
-import {Color} from '../constants';
+import React from "react";
+import { Text, TextProps, TextStyle } from "react-native";
+import { Color } from "../../../constants";
+import { styles } from "./Label.styles";
 
 export enum LabelVariant {
-  Header1 = 'header1',
-  Header2 = 'header2',
-  Header3 = 'header3',
-  Header4 = 'header4',
-  Normal = 'normal',
-  Small = 'small',
-  NormalBold = 'normalBold',
-  SmallBold = 'smallBold',
+  Header1 = "header1",
+  Header2 = "header2",
+  Header3 = "header3",
+  Header4 = "header4",
+  Normal = "normal",
+  Small = "small",
+  NormalBold = "normalBold",
+  SmallBold = "smallBold",
 }
 
 export enum LabelAlign {
-  Left = 'left',
-  Right = 'right',
-  Center = 'center',
+  Left = "left",
+  Right = "right",
+  Center = "center",
 }
 
 type LabelProps = {
-  variant?: LabelVariant;
+  variant: LabelVariant;
   color?: string;
   title: string;
   align?: LabelAlign;
+  numberOfLines?: number;
+  ellipsizeMode?: TextProps["ellipsizeMode"];
 };
 
 function variantStyle(variant: LabelVariant): TextStyle {
@@ -62,62 +65,25 @@ function alignStyle(align: LabelAlign): TextStyle {
 
 export function Label(props: LabelProps): React.JSX.Element {
   const {
-    variant = LabelVariant.Normal,
+    variant,
     color = Color.black,
     title,
     align = LabelAlign.Left,
+    numberOfLines,
+    ellipsizeMode,
   } = props;
 
   return (
-    <Text style={[styles.base, variantStyle(variant), alignStyle(align), {color}]}>
+    <Text
+      numberOfLines={numberOfLines}
+      ellipsizeMode={ellipsizeMode}
+      style={[
+        styles.base,
+        variantStyle(variant),
+        alignStyle(align),
+        { color },
+      ]}>
       {title}
     </Text>
   );
 }
-
-const styles = StyleSheet.create({
-  base: {
-    fontFamily: 'HelveticaNeue',
-  },
-  header1: {
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  header2: {
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  header3: {
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  header4: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  normal: {
-    fontSize: 16,
-    fontWeight: '400',
-  },
-  small: {
-    fontSize: 13,
-    fontWeight: '400',
-  },
-  normalBold: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  smallBold: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  alignLeft: {
-    textAlign: 'left',
-  },
-  alignRight: {
-    textAlign: 'right',
-  },
-  alignCenter: {
-    textAlign: 'center',
-  },
-});

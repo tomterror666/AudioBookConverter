@@ -4,7 +4,7 @@
  * @format
  */
 
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   DeviceEventEmitter,
   GestureResponderEvent,
@@ -14,23 +14,36 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
-  StyleSheet,
   Text,
   View,
-} from 'react-native';
-import {openFolder} from 'react-native-file-panel';
-import {DependencyStatusPanel} from './components/DependencyStatusPanel';
-import {Box} from './components/ui/Box';
-import {Button, ButtonVariant} from './components/ui/Button';
-import {Label, LabelAlign, LabelVariant} from './components/ui/Label';
-import {Modal} from './components/ui/Modal';
-import {Size} from './components/ui/constants';
+} from "react-native";
+import { openFolder } from "react-native-file-panel";
+import { DependencyStatusPanel } from "./components/DependencyStatusPanel";
+import { Box } from "./components/ui/Box";
+import { Button, ButtonVariant } from "./components/ui/Button";
+import { Label, LabelAlign, LabelVariant } from "./components/ui/Label";
+import {
+  CONVERSION_STEP_TITLES,
+  DEVICE_OPTIONS,
+  MODE_OPTIONS,
+  Size,
+  THUMB_SIZE,
+} from "./constants";
+import {
+  CreateAudiobookM4bModal,
+  DetermineChapterPositionsModal,
+  EmbedChaptersInM4aModal,
+  InfoModal,
+  Mp3CountModal,
+  SelectionModal,
+} from "./modals";
 import {
   allDependencyLedsGreen,
   type DependencyCheckResult,
   type DependencyStatuses,
-} from './utils/dependencyStatus';
-import {isCudaDeviceSupportedOnThisPlatform} from './utils/deviceCudaSupport';
+} from "./utils/dependencyStatus";
+import { isCudaDeviceSupportedOnThisPlatform } from "./utils/deviceCudaSupport";
+import { styles } from "./App.styles";
 import {
   ConversionCancelledError,
   countMp3Files,
@@ -38,22 +51,7 @@ import {
   createMp4WithChapterMarkers,
   isConversionCancelled,
   locateChapters,
-} from './utils/conversionPipeline';
-
-const TRACK_HEIGHT = 6;
-const THUMB_SIZE = 24;
-const CONTENT_ROW_PADDING = 24;
-const FORM_EDGE_MARGIN = 32;
-const SLIDER_HORIZONTAL_INSET = CONTENT_ROW_PADDING + FORM_EDGE_MARGIN;
-const MODE_OPTIONS = ['tiny', 'base', 'small', 'medium', 'large'] as const;
-const DEVICE_OPTIONS = ['cpu', 'cuda'] as const;
-
-const CONVERSION_STEP_TITLES: Record<number, string> = {
-  1: 'MP3-Dateien zählen',
-  2: 'Kapitelpositionen ermitteln',
-  3: 'Kapitel in die M4A einbetten',
-  4: 'Audiobook (M4B) erstellen',
-};
+} from "./utils/conversionPipeline";
 
 type DependencyStatusNativeModule = {
   selectDirectory?: () => Promise<string | null>;
@@ -80,36 +78,46 @@ function App(): React.JSX.Element {
   /** Schritt 3: erkannte Kapitel (marks) oder MP3-Dateien in Timeline-Reihenfolge */
   const [mergeChapterCurrent, setMergeChapterCurrent] = useState(0);
   const [mergeChapterTotal, setMergeChapterTotal] = useState(0);
-  const [mergeChapterMode, setMergeChapterMode] = useState<'marks' | 'mp3' | null>(
-    null,
-  );
+  const [mergeChapterMode, setMergeChapterMode] = useState<
+    "marks" | "mp3" | null
+  >(null);
   const [dependencyStatuses, setDependencyStatuses] =
     useState<DependencyStatuses | null>(null);
-  const trackLayout = useRef({width: 300});
+  const trackLayout = useRef({ width: 300 });
   const [mp3ConfirmVisible, setMp3ConfirmVisible] = useState(false);
   const [pendingMp3Count, setPendingMp3Count] = useState<number | null>(null);
-  const mp3ConfirmResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  const mp3ConfirmResolver = useRef<((confirmed: boolean) => void) | null>(
+    null,
+  );
   const [step2SummaryVisible, setStep2SummaryVisible] = useState(false);
-  const [step2SummaryContent, setStep2SummaryContent] = useState('');
+  const [step2SummaryContent, setStep2SummaryContent] = useState("");
   const step2SummaryResolver = useRef<(() => void) | null>(null);
   const [step3SummaryVisible, setStep3SummaryVisible] = useState(false);
-  const [step3SummaryContent, setStep3SummaryContent] = useState('');
+  const [step3SummaryContent, setStep3SummaryContent] = useState("");
   const step3SummaryResolver = useRef<(() => void) | null>(null);
   const [step4SuccessVisible, setStep4SuccessVisible] = useState(false);
-  const [step4SuccessContent, setStep4SuccessContent] = useState('');
+  const [step4SuccessContent, setStep4SuccessContent] = useState("");
   const step4SuccessResolver = useRef<(() => void) | null>(null);
   const [infoVisible, setInfoVisible] = useState(false);
-  const [infoHeadline, setInfoHeadline] = useState('');
-  const [infoContent, setInfoContent] = useState('');
+  const [infoHeadline, setInfoHeadline] = useState("");
+  const [infoContent, setInfoContent] = useState("");
   const [selectionVisible, setSelectionVisible] = useState(false);
-  const [selectionHeadline, setSelectionHeadline] = useState('');
-  const [selectionContent, setSelectionContent] = useState('');
+  const [selectionHeadline, setSelectionHeadline] = useState("");
+  const [selectionContent, setSelectionContent] = useState("");
   const [selectionOptions, setSelectionOptions] = useState<string[]>([]);
-  const selectionResolver = useRef<((value: string | null) => void) | null>(null);
+  const [selectionInitialValue, setSelectionInitialValue] = useState<
+    string | null
+  >(null);
+  const selectionResolver = useRef<((value: string | null) => void) | null>(
+    null,
+  );
 
-  const onDependencyCheckResult = useCallback((result: DependencyCheckResult) => {
-    setDependencyStatuses(result.statuses);
-  }, []);
+  const onDependencyCheckResult = useCallback(
+    (result: DependencyCheckResult) => {
+      setDependencyStatuses(result.statuses);
+    },
+    [],
+  );
 
   const askMp3CountConfirmation = useCallback(
     (count: number): Promise<boolean> =>
@@ -135,8 +143,8 @@ function App(): React.JSX.Element {
         const shown = chapterLabels.slice(0, 12);
         const remaining = Math.max(0, chapterLabels.length - shown.length);
         const listPart =
-          shown.length > 0 ? `\n\n${shown.map(l => `• ${l}`).join('\n')}` : '';
-        const morePart = remaining > 0 ? `\n… und ${remaining} weitere` : '';
+          shown.length > 0 ? `\n\n${shown.map(l => `• ${l}`).join("\n")}` : "";
+        const morePart = remaining > 0 ? `\n… und ${remaining} weitere` : "";
         setStep2SummaryContent(
           `Es wurden ${chapterCount} Kapitel erkannt.${listPart}${morePart}`,
         );
@@ -150,7 +158,7 @@ function App(): React.JSX.Element {
     const resolver = step2SummaryResolver.current;
     step2SummaryResolver.current = null;
     setStep2SummaryVisible(false);
-    setStep2SummaryContent('');
+    setStep2SummaryContent("");
     resolver?.();
   }, []);
 
@@ -170,7 +178,7 @@ function App(): React.JSX.Element {
     const resolver = step3SummaryResolver.current;
     step3SummaryResolver.current = null;
     setStep3SummaryVisible(false);
-    setStep3SummaryContent('');
+    setStep3SummaryContent("");
     resolver?.();
   }, []);
 
@@ -190,7 +198,7 @@ function App(): React.JSX.Element {
     const resolver = step4SuccessResolver.current;
     step4SuccessResolver.current = null;
     setStep4SuccessVisible(false);
-    setStep4SuccessContent('');
+    setStep4SuccessContent("");
     resolver?.();
   }, []);
 
@@ -202,8 +210,8 @@ function App(): React.JSX.Element {
 
   const closeInfoModal = useCallback(() => {
     setInfoVisible(false);
-    setInfoHeadline('');
-    setInfoContent('');
+    setInfoHeadline("");
+    setInfoContent("");
   }, []);
 
   const askSelection = useCallback(
@@ -211,11 +219,13 @@ function App(): React.JSX.Element {
       headline: string,
       content: string,
       options: readonly string[],
+      initialValue?: string | null,
     ): Promise<string | null> =>
       new Promise(resolve => {
         setSelectionHeadline(headline);
         setSelectionContent(content);
         setSelectionOptions([...options]);
+        setSelectionInitialValue(initialValue ?? null);
         setSelectionVisible(true);
         selectionResolver.current = resolve;
       }),
@@ -226,39 +236,35 @@ function App(): React.JSX.Element {
     const resolver = selectionResolver.current;
     selectionResolver.current = null;
     setSelectionVisible(false);
-    setSelectionHeadline('');
-    setSelectionContent('');
+    setSelectionHeadline("");
+    setSelectionContent("");
     setSelectionOptions([]);
+    setSelectionInitialValue(null);
     resolver?.(value);
   }, []);
 
   const step2SliderProgress =
-    conversionStep === 2 &&
-    mp3FileTotal != null &&
-    mp3FileTotal > 0
+    conversionStep === 2 && mp3FileTotal != null && mp3FileTotal > 0
       ? Math.max(0, Math.min(1, whisperMp3Done / mp3FileTotal))
       : null;
   const step3SliderProgress =
     conversionStep === 3 && mergeProgressTotal > 0
-      ? Math.max(
-          0,
-          Math.min(1, mergeProgressDone / mergeProgressTotal),
-        )
+      ? Math.max(0, Math.min(1, mergeProgressDone / mergeProgressTotal))
       : null;
   const displayProgress =
     step2SliderProgress != null
       ? step2SliderProgress
       : step3SliderProgress != null
-        ? step3SliderProgress
-        : progress;
+      ? step3SliderProgress
+      : progress;
 
   useEffect(() => {
-    if (Platform.OS !== 'macos') {
+    if (Platform.OS !== "macos") {
       return;
     }
     // Native ruft RCTDeviceEventEmitter.emit auf (siehe DependencyStatus.mm).
     const sub = DeviceEventEmitter.addListener(
-      'WhisperScanProgress',
+      "WhisperScanProgress",
       (payload: {
         current?: number;
         total?: number;
@@ -267,7 +273,7 @@ function App(): React.JSX.Element {
         chapterTotal?: number;
         chapterMode?: string;
       }) => {
-        const isMerge = payload?.kind === 'merge';
+        const isMerge = payload?.kind === "merge";
         if (isMerge) {
           const chC = payload?.chapterCurrent;
           const chT = payload?.chapterTotal;
@@ -280,7 +286,7 @@ function App(): React.JSX.Element {
             setMergeChapterCurrent(Math.max(0, Math.floor(Number(chC))));
             setMergeChapterTotal(Math.max(0, Math.floor(Number(chT))));
             const md = payload?.chapterMode;
-            if (md === 'marks' || md === 'mp3') {
+            if (md === "marks" || md === "mp3") {
               setMergeChapterMode(md);
             }
           }
@@ -306,9 +312,9 @@ function App(): React.JSX.Element {
   }, []);
 
   const handleTrackLayout = (e: LayoutChangeEvent) => {
-    const {width} = e.nativeEvent.layout;
+    const { width } = e.nativeEvent.layout;
     if (width > 0) {
-      trackLayout.current = {width};
+      trackLayout.current = { width };
       setTrackWidth(width);
     }
   };
@@ -317,8 +323,8 @@ function App(): React.JSX.Element {
     if (isConverting && (conversionStep === 2 || conversionStep === 3)) {
       return;
     }
-    const {locationX} = e.nativeEvent;
-    const {width} = trackLayout.current;
+    const { locationX } = e.nativeEvent;
+    const { width } = trackLayout.current;
     if (width > 0) {
       const newValue = Math.max(0, Math.min(1, locationX / width));
       setProgress(newValue);
@@ -327,32 +333,32 @@ function App(): React.JSX.Element {
 
   const handleVerzeichnisPress = async () => {
     try {
-      if (Platform.OS === 'macos') {
+      if (Platform.OS === "macos") {
         const mod = NativeModules.DependencyStatus as
           | DependencyStatusNativeModule
           | undefined;
         const path =
-          typeof mod?.selectDirectory === 'function'
+          typeof mod?.selectDirectory === "function"
             ? await mod.selectDirectory()
             : null;
         if (path) {
           setSelectedDirectory(path);
         }
-      } else if (Platform.OS === 'windows') {
+      } else if (Platform.OS === "windows") {
         const path = await openFolder();
         if (path) {
           setSelectedDirectory(path);
         }
       } else {
         showInfoModal(
-          'Nicht unterstützt',
-          'Der Verzeichnis-Dialog wird nur auf macOS und Windows unterstützt.',
+          "Nicht unterstützt",
+          "Der Verzeichnis-Dialog wird nur auf macOS und Windows unterstützt.",
         );
       }
     } catch (error) {
       showInfoModal(
-        'Fehler',
-        'Verzeichnis konnte nicht ausgewählt werden: ' +
+        "Fehler",
+        "Verzeichnis konnte nicht ausgewählt werden: " +
           (error instanceof Error ? error.message : String(error)),
       );
     }
@@ -360,9 +366,10 @@ function App(): React.JSX.Element {
 
   const handleModePress = async () => {
     const picked = await askSelection(
-      'Mode wählen',
-      'Bitte wählen Sie einen Modus',
+      "Mode wählen",
+      "Bitte wählen Sie einen Modus",
       MODE_OPTIONS,
+      selectedMode,
     );
     if (picked) {
       setSelectedMode(picked);
@@ -371,9 +378,10 @@ function App(): React.JSX.Element {
 
   const handleDevicePress = async () => {
     const picked = await askSelection(
-      'Device wählen',
-      'Bitte wählen Sie ein Gerät',
+      "Device wählen",
+      "Bitte wählen Sie ein Gerät",
       DEVICE_OPTIONS,
+      selectedDevice,
     );
     if (picked) {
       setSelectedDevice(picked);
@@ -381,7 +389,7 @@ function App(): React.JSX.Element {
   };
 
   const formComplete =
-    typeof selectedDirectory === 'string' &&
+    typeof selectedDirectory === "string" &&
     selectedDirectory.trim().length > 0 &&
     selectedMode != null &&
     selectedMode.trim().length > 0 &&
@@ -389,7 +397,7 @@ function App(): React.JSX.Element {
     selectedDevice.trim().length > 0;
 
   const depsOkForStart =
-    Platform.OS !== 'macos' || allDependencyLedsGreen(dependencyStatuses);
+    Platform.OS !== "macos" || allDependencyLedsGreen(dependencyStatuses);
   const startLooksInactive = !formComplete || isConverting || !depsOkForStart;
 
   const handleStartPress = () => {
@@ -402,36 +410,33 @@ function App(): React.JSX.Element {
     const missing: string[] = [];
     if (
       !(
-        typeof selectedDirectory === 'string' &&
+        typeof selectedDirectory === "string" &&
         selectedDirectory.trim().length > 0
       )
     ) {
-      missing.push('Verzeichnis');
+      missing.push("Verzeichnis");
     }
     if (!(selectedMode != null && selectedMode.trim().length > 0)) {
-      missing.push('Mode');
+      missing.push("Mode");
     }
     if (!(selectedDevice != null && selectedDevice.trim().length > 0)) {
-      missing.push('Device');
+      missing.push("Device");
     }
     if (missing.length > 0) {
       showInfoModal(
-        'Angaben unvollständig',
-        `Bitte wählen Sie noch:\n${missing.map(m => `• ${m}`).join('\n')}`,
+        "Angaben unvollständig",
+        `Bitte wählen Sie noch:\n${missing.map(m => `• ${m}`).join("\n")}`,
       );
       return;
     }
 
     const deviceLower = selectedDevice!.trim().toLowerCase();
-    if (
-      deviceLower === 'cuda' &&
-      !isCudaDeviceSupportedOnThisPlatform()
-    ) {
+    if (deviceLower === "cuda" && !isCudaDeviceSupportedOnThisPlatform()) {
       const cudaBody =
-        Platform.OS === 'macos'
-          ? 'Auf macOS steht kein CUDA-Gerät (NVIDIA) zur Verfügung. Bitte wählen Sie „cpu“.'
-          : 'CUDA wird auf dieser Plattform nicht unterstützt. Bitte wählen Sie „cpu“.';
-      showInfoModal('CUDA nicht verfügbar', cudaBody);
+        Platform.OS === "macos"
+          ? "Auf macOS steht kein CUDA-Gerät (NVIDIA) zur Verfügung. Bitte wählen Sie „cpu“."
+          : "CUDA wird auf dieser Plattform nicht unterstützt. Bitte wählen Sie „cpu“.";
+      showInfoModal("CUDA nicht verfügbar", cudaBody);
       return;
     }
 
@@ -480,7 +485,7 @@ function App(): React.JSX.Element {
         if (isConversionCancelled(e)) {
           return;
         }
-        showInfoModal('Fehler', e instanceof Error ? e.message : String(e));
+        showInfoModal("Fehler", e instanceof Error ? e.message : String(e));
       } finally {
         setConversionStep(0);
         setMp3FileTotal(null);
@@ -499,7 +504,7 @@ function App(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainColumn}>
-        <Box padding={{block: Size.size_32}}>
+        <Box padding={{ block: Size.size_32 }}>
           <Label
             title="AudioBookConverter"
             variant={LabelVariant.Header1}
@@ -533,7 +538,7 @@ function App(): React.JSX.Element {
                         ]}
                         numberOfLines={1}
                         ellipsizeMode="middle">
-                        {selectedDirectory ?? 'AudioBooks'}
+                        {selectedDirectory ?? "AudioBooks"}
                       </Text>
                     </View>
                   </Pressable>
@@ -555,7 +560,7 @@ function App(): React.JSX.Element {
                           styles.pathInputText,
                           !selectedMode && styles.pathInputPlaceholder,
                         ]}>
-                        {selectedMode ?? 'base'}
+                        {selectedMode ?? "base"}
                       </Text>
                     </View>
                   </Pressable>
@@ -577,7 +582,7 @@ function App(): React.JSX.Element {
                           styles.pathInputText,
                           !selectedDevice && styles.pathInputPlaceholder,
                         ]}>
-                        {selectedDevice ?? 'cpu'}
+                        {selectedDevice ?? "cpu"}
                       </Text>
                     </View>
                   </Pressable>
@@ -600,26 +605,26 @@ function App(): React.JSX.Element {
         <View style={styles.sliderContainer}>
           {conversionStep > 0 && (
             <Text style={styles.progressStepLabel}>
-              Schritt {conversionStep}/4:{' '}
-              {CONVERSION_STEP_TITLES[conversionStep] ?? '—'}
+              Schritt {conversionStep}/4:{" "}
+              {CONVERSION_STEP_TITLES[conversionStep] ?? "—"}
               {conversionStep === 2 &&
               mp3FileTotal != null &&
               mp3FileTotal >= 0 ? (
                 <Text style={styles.progressStepMp3}>
-                  {' '}
+                  {" "}
                   ({whisperMp3Done} von {mp3FileTotal})
                 </Text>
               ) : null}
               {conversionStep === 3 && mergeProgressTotal > 0 ? (
                 <Text style={styles.progressStepMp3}>
-                  {' '}
+                  {" "}
                   (
                   {mergeChapterTotal > 0 && mergeChapterCurrent > 0 ? (
                     <>
-                      {mergeChapterMode === 'mp3'
+                      {mergeChapterMode === "mp3"
                         ? `Datei ${mergeChapterCurrent}/${mergeChapterTotal}`
                         : `Kapitel ${mergeChapterCurrent}/${mergeChapterTotal}`}
-                      {' · '}
+                      {" · "}
                     </>
                   ) : null}
                   {Math.min(
@@ -629,7 +634,7 @@ function App(): React.JSX.Element {
                   % fertig
                   {mp3FileTotal != null && mp3FileTotal > 0
                     ? ` · ${mp3FileTotal} MP3-Dateien`
-                    : ''}
+                    : ""}
                   )
                 </Text>
               ) : null}
@@ -641,7 +646,10 @@ function App(): React.JSX.Element {
             onPress={handlePress}>
             <View style={styles.sliderTrackBg} />
             <View
-              style={[styles.sliderFill, {width: displayProgress * trackWidth}]}
+              style={[
+                styles.sliderFill,
+                { width: displayProgress * trackWidth },
+              ]}
             />
             <View
               style={[
@@ -654,244 +662,43 @@ function App(): React.JSX.Element {
           </Pressable>
         </View>
       </View>
-      <Modal
+      <Mp3CountModal
         visible={mp3ConfirmVisible}
-        headline="MP3-Dateien"
-        content={`Im ausgewählten Ordner wurden ${
-          pendingMp3Count ?? 0
-        } MP3-Datei(en) gefunden (inkl. Unterordner).`}
-        buttonConfig={[
-          {
-            label: 'Abbrechen',
-            variant: ButtonVariant.Secondary,
-            onPress: () => resolveMp3CountConfirmation(false),
-          },
-          {
-            label: 'Weiter',
-            variant: ButtonVariant.Primary,
-            onPress: () => resolveMp3CountConfirmation(true),
-          },
-        ]}
-        onRequestClose={() => resolveMp3CountConfirmation(false)}>
-      </Modal>
-      <Modal
+        mp3Count={pendingMp3Count}
+        onCancel={() => resolveMp3CountConfirmation(false)}
+        onContinue={() => resolveMp3CountConfirmation(true)}
+      />
+      <DetermineChapterPositionsModal
         visible={step2SummaryVisible}
-        headline="Kapitel gefunden"
         content={step2SummaryContent}
-        buttonConfig={[
-          {
-            label: 'Weiter',
-            variant: ButtonVariant.Primary,
-            onPress: () => resolveStep2Summary(),
-          },
-        ]}
-        onRequestClose={() => resolveStep2Summary()}
+        onContinue={resolveStep2Summary}
       />
-      <Modal
+      <EmbedChaptersInM4aModal
         visible={step3SummaryVisible}
-        headline="Schritt 3 abgeschlossen"
         content={step3SummaryContent}
-        buttonConfig={[
-          {
-            label: 'Weiter',
-            variant: ButtonVariant.Primary,
-            onPress: () => resolveStep3Summary(),
-          },
-        ]}
-        onRequestClose={() => resolveStep3Summary()}
+        onContinue={resolveStep3Summary}
       />
-      <Modal
+      <CreateAudiobookM4bModal
         visible={step4SuccessVisible}
-        headline="Erfolg"
         content={step4SuccessContent}
-        buttonConfig={[
-          {
-            label: 'OK',
-            variant: ButtonVariant.Primary,
-            onPress: () => resolveStep4Success(),
-          },
-        ]}
-        onRequestClose={() => resolveStep4Success()}
+        onClose={resolveStep4Success}
       />
-      <Modal
+      <InfoModal
         visible={infoVisible}
         headline={infoHeadline}
         content={infoContent}
-        buttonConfig={[
-          {
-            label: 'OK',
-            variant: ButtonVariant.Primary,
-            onPress: closeInfoModal,
-          },
-        ]}
-        onRequestClose={closeInfoModal}
+        onClose={closeInfoModal}
       />
-      <Modal
+      <SelectionModal
         visible={selectionVisible}
         headline={selectionHeadline}
         content={selectionContent}
-        buttonConfig={[
-          ...selectionOptions.map(option => ({
-            label: option,
-            variant: ButtonVariant.Secondary,
-            onPress: () => resolveSelection(option),
-          })),
-          {
-            label: 'Abbrechen',
-            variant: ButtonVariant.Primary,
-            onPress: () => resolveSelection(null),
-          },
-        ]}
-        onRequestClose={() => resolveSelection(null)}
+        options={selectionOptions}
+        selectedValue={selectionInitialValue}
+        onSelect={resolveSelection}
       />
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
-  mainColumn: {
-    flex: 1,
-    flexDirection: 'column',
-  },
-  mainScroll: {
-    flex: 1,
-    minHeight: 0,
-  },
-  mainScrollContent: {
-    flexGrow: 1,
-    paddingBottom: 8,
-  },
-  contentRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingTop: 24,
-    paddingHorizontal: CONTENT_ROW_PADDING,
-  },
-  formColumn: {
-    flex: 1,
-    minWidth: 0,
-    alignSelf: 'flex-start',
-  },
-  statusAside: {
-    flexShrink: 0,
-    marginLeft: FORM_EDGE_MARGIN,
-    marginRight: FORM_EDGE_MARGIN,
-    minWidth: 0,
-    maxWidth: 920,
-    alignSelf: 'flex-start',
-    alignItems: 'flex-start',
-  },
-  buttonContainer: {
-    marginLeft: FORM_EDGE_MARGIN,
-    marginTop: 0,
-    alignSelf: 'flex-start',
-  },
-  verzeichnisRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  fieldLabelContainer: {
-    width: 130,
-    justifyContent: 'center',
-  },
-  modeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 32,
-  },
-  modeInputWrapper: {
-    marginLeft: 64,
-    flex: 1,
-    maxWidth: 600,
-  },
-  deviceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 32,
-  },
-  deviceInputWrapper: {
-    marginLeft: 64,
-    flex: 1,
-    maxWidth: 600,
-  },
-  pathInputWrapper: {
-    marginLeft: 64,
-    flex: 1,
-    maxWidth: 600,
-  },
-  pathInput: {
-    borderWidth: 1,
-    borderColor: '#CCCCCC',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    minWidth: 300,
-  },
-  pathInputText: {
-    fontSize: 14,
-    color: '#000000',
-  },
-  pathInputPlaceholder: {
-    color: '#999999',
-  },
-  startButtonWrapper: {
-    marginTop: 64,
-  },
-  sliderContainer: {
-    alignSelf: 'stretch',
-    marginHorizontal: SLIDER_HORIZONTAL_INSET,
-    marginBottom: 32,
-  },
-  progressStepLabel: {
-    alignSelf: 'stretch',
-    marginBottom: 10,
-    fontSize: 20,
-    fontWeight: '500',
-    color: '#333333',
-    textAlign: 'left',
-  },
-  progressStepMp3: {
-    fontSize: 20,
-    fontWeight: '400',
-    color: '#666666',
-  },
-  sliderTrack: {
-    height: THUMB_SIZE,
-    justifyContent: 'center',
-    alignSelf: 'stretch',
-    width: '100%',
-    minWidth: 200,
-  },
-  sliderTrackBg: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: (THUMB_SIZE - TRACK_HEIGHT) / 2,
-    height: TRACK_HEIGHT,
-    backgroundColor: '#E0E0E0',
-    borderRadius: TRACK_HEIGHT / 2,
-  },
-  sliderFill: {
-    position: 'absolute',
-    left: 0,
-    top: (THUMB_SIZE - TRACK_HEIGHT) / 2,
-    height: TRACK_HEIGHT,
-    backgroundColor: '#34C759',
-    borderRadius: TRACK_HEIGHT / 2,
-  },
-  sliderThumb: {
-    position: 'absolute',
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
-    borderRadius: THUMB_SIZE / 2,
-    backgroundColor: '#333333',
-    top: 0,
-  },
-});
 
 export default App;

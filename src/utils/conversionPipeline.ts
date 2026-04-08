@@ -1,9 +1,9 @@
-import {NativeModules, Platform} from 'react-native';
+import { NativeModules, Platform } from "react-native";
 
 export class ConversionCancelledError extends Error {
   constructor() {
-    super('Konvertierung abgebrochen');
-    this.name = 'ConversionCancelledError';
+    super("Konvertierung abgebrochen");
+    this.name = "ConversionCancelledError";
   }
 }
 
@@ -12,21 +12,21 @@ export function isConversionCancelled(e: unknown): boolean {
 }
 
 async function nativeCountMp3Files(directoryPath: string): Promise<number> {
-  if (Platform.OS !== 'macos') {
-    throw new Error('MP3-Zählung ist derzeit nur unter macOS verfügbar.');
+  if (Platform.OS !== "macos") {
+    throw new Error("MP3-Zählung ist derzeit nur unter macOS verfügbar.");
   }
   const mod = NativeModules.DependencyStatus as
-    | {countMp3FilesInDirectory?: (p: string) => Promise<number>}
+    | { countMp3FilesInDirectory?: (p: string) => Promise<number> }
     | undefined;
   const fn = mod?.countMp3FilesInDirectory;
-  if (typeof fn !== 'function') {
-    throw new Error('countMp3FilesInDirectory (nativ) ist nicht verfügbar.');
+  if (typeof fn !== "function") {
+    throw new Error("countMp3FilesInDirectory (nativ) ist nicht verfügbar.");
   }
   const n = await fn(directoryPath);
-  return typeof n === 'number' ? n : Number(n);
+  return typeof n === "number" ? n : Number(n);
 }
 
-const WHISPER_COMPUTE_TYPE = 'int8' as const;
+const WHISPER_COMPUTE_TYPE = "int8" as const;
 
 export type ChapterMark = {
   filePath: string;
@@ -40,10 +40,10 @@ export type ChapterDetectionResult = {
 };
 
 function asNumber(v: unknown, field: string): number {
-  if (typeof v === 'number' && Number.isFinite(v)) {
+  if (typeof v === "number" && Number.isFinite(v)) {
     return v;
   }
-  if (typeof v === 'string' && v.trim() !== '') {
+  if (typeof v === "string" && v.trim() !== "") {
     const n = Number(v);
     if (Number.isFinite(n)) {
       return n;
@@ -53,31 +53,33 @@ function asNumber(v: unknown, field: string): number {
 }
 
 function parseChapterDetectionResult(raw: unknown): ChapterDetectionResult {
-  if (!raw || typeof raw !== 'object') {
-    throw new Error('Ungültige Kapitel-Antwort.');
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Ungültige Kapitel-Antwort.");
   }
-  const marksRaw = (raw as {marks?: unknown}).marks;
+  const marksRaw = (raw as { marks?: unknown }).marks;
   if (!Array.isArray(marksRaw)) {
-    throw new Error('Ungültige Kapitel-Antwort (marks).');
+    throw new Error("Ungültige Kapitel-Antwort (marks).");
   }
   const marks: ChapterMark[] = marksRaw.map((item, index) => {
-    if (!item || typeof item !== 'object') {
+    if (!item || typeof item !== "object") {
       throw new Error(`Ungültiges Kapitel-Element (Index ${index}).`);
     }
     const o = item as Record<string, unknown>;
     const filePath = o.filePath;
     const label = o.label;
-    if (typeof filePath !== 'string' || typeof label !== 'string') {
-      throw new Error(`Ungültiges Kapitel-Element (Index ${index}, Pfade/Label).`);
+    if (typeof filePath !== "string" || typeof label !== "string") {
+      throw new Error(
+        `Ungültiges Kapitel-Element (Index ${index}, Pfade/Label).`,
+      );
     }
     return {
       filePath,
-      startSec: asNumber(o.startSec, 'startSec'),
-      number: asNumber(o.number, 'number'),
+      startSec: asNumber(o.startSec, "startSec"),
+      number: asNumber(o.number, "number"),
       label,
     };
   });
-  return {marks};
+  return { marks };
 }
 
 async function nativeDetectChaptersWithWhisper(
@@ -86,9 +88,9 @@ async function nativeDetectChaptersWithWhisper(
   device: string,
   computeType: string,
 ): Promise<ChapterDetectionResult> {
-  if (Platform.OS !== 'macos') {
+  if (Platform.OS !== "macos") {
     throw new Error(
-      'Whisper-Kapitelerkennung ist derzeit nur unter macOS implementiert.',
+      "Whisper-Kapitelerkennung ist derzeit nur unter macOS implementiert.",
     );
   }
   const mod = NativeModules.DependencyStatus as
@@ -102,8 +104,8 @@ async function nativeDetectChaptersWithWhisper(
       }
     | undefined;
   const fn = mod?.detectChaptersWithWhisper;
-  if (typeof fn !== 'function') {
-    throw new Error('detectChaptersWithWhisper (nativ) ist nicht verfügbar.');
+  if (typeof fn !== "function") {
+    throw new Error("detectChaptersWithWhisper (nativ) ist nicht verfügbar.");
   }
   const raw = await fn(rootDirectory, modelSize, device, computeType);
   return parseChapterDetectionResult(raw);
@@ -113,9 +115,9 @@ async function nativeCreateMergedAudiobookWithChapters(
   rootDirectory: string,
   marks: ChapterMark[],
 ): Promise<string> {
-  if (Platform.OS !== 'macos') {
+  if (Platform.OS !== "macos") {
     throw new Error(
-      'Zusammenführung mit Kapiteln ist derzeit nur unter macOS implementiert.',
+      "Zusammenführung mit Kapiteln ist derzeit nur unter macOS implementiert.",
     );
   }
   const mod = NativeModules.DependencyStatus as
@@ -127,14 +129,14 @@ async function nativeCreateMergedAudiobookWithChapters(
       }
     | undefined;
   const fn = mod?.createMergedAudiobookWithChapters;
-  if (typeof fn !== 'function') {
+  if (typeof fn !== "function") {
     throw new Error(
-      'createMergedAudiobookWithChapters (nativ) ist nicht verfügbar.',
+      "createMergedAudiobookWithChapters (nativ) ist nicht verfügbar.",
     );
   }
   const out = await fn(rootDirectory, marks);
-  if (typeof out !== 'string' || !out.trim()) {
-    throw new Error('Ungültiger Ausgabepfad von der nativen Zusammenführung.');
+  if (typeof out !== "string" || !out.trim()) {
+    throw new Error("Ungültiger Ausgabepfad von der nativen Zusammenführung.");
   }
   return out;
 }
@@ -143,9 +145,9 @@ async function nativeCreateM4bAudiobook(
   mergedM4aPath: string,
   mp3RootDirectory: string,
 ): Promise<string> {
-  if (Platform.OS !== 'macos') {
+  if (Platform.OS !== "macos") {
     throw new Error(
-      'M4B-Erstellung ist derzeit nur unter macOS implementiert.',
+      "M4B-Erstellung ist derzeit nur unter macOS implementiert.",
     );
   }
   const mod = NativeModules.DependencyStatus as
@@ -154,12 +156,12 @@ async function nativeCreateM4bAudiobook(
       }
     | undefined;
   const fn = mod?.createM4bAudiobook;
-  if (typeof fn !== 'function') {
-    throw new Error('createM4bAudiobook (nativ) ist nicht verfügbar.');
+  if (typeof fn !== "function") {
+    throw new Error("createM4bAudiobook (nativ) ist nicht verfügbar.");
   }
   const out = await fn(mergedM4aPath, mp3RootDirectory);
-  if (typeof out !== 'string' || !out.trim()) {
-    throw new Error('Ungültiger Ausgabepfad für die M4B-Datei.');
+  if (typeof out !== "string" || !out.trim()) {
+    throw new Error("Ungültiger Ausgabepfad für die M4B-Datei.");
   }
   return out;
 }

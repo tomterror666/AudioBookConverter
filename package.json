@@ -8,6 +8,7 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
+    "test:ui": "jest --runInBand --watchman=false --testPathPattern=src/components/ui",
     "windows": "npx @react-native-community/cli run-windows"
   },
   "dependencies": {

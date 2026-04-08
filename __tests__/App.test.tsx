@@ -2,25 +2,25 @@
  * @format
  */
 
-import 'react-native';
-import React from 'react';
-jest.mock('react-native-file-panel', () => ({
-  openFolder: async () => '',
+import "react-native";
+import React from "react";
+jest.mock("react-native-file-panel", () => ({
+  openFolder: async () => "",
 }));
 
-jest.mock('../src/components/DependencyStatusPanel', () => ({
+jest.mock("../src/components/DependencyStatusPanel", () => ({
   DependencyStatusPanel: () => null,
 }));
 
-import App from '../src/App';
+import App from "../src/App";
 
 // Note: import explicitly to use the types shipped with jest.
-import {it, jest} from '@jest/globals';
+import { it, jest } from "@jest/globals";
 
 // Note: test renderer must be required after react-native.
-import renderer, {act} from 'react-test-renderer';
+import renderer, { act } from "react-test-renderer";
 
-it('renders correctly', async () => {
+it("renders correctly", async () => {
   let tree: renderer.ReactTestRenderer;
 
   await act(async () => {

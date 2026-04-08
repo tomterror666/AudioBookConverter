@@ -1,26 +1,41 @@
-import React from 'react';
-import {Pressable, StyleSheet, Text} from 'react-native';
-import {Color} from '../constants';
+import React from "react";
+import { ActivityIndicator, Pressable, Text as RNText } from "react-native";
+import { Color } from "../../../constants";
+import { styles } from "./Button.styles";
 
 export enum ButtonVariant {
-  Primary = 'primary',
-  Secondary = 'secondary',
-  Tertiary = 'tertiary',
-  Text = 'text',
-  Ghost = 'ghost',
-  Destructive = 'destructive',
+  Primary = "primary",
+  Secondary = "secondary",
+  Tertiary = "tertiary",
+  Text = "text",
+  Ghost = "ghost",
+  Destructive = "destructive",
+}
+
+export enum ButtonSize {
+  Normal = "normal",
+  Small = "small",
 }
 
 type ButtonProps = {
   children: React.ReactNode;
   variant?: ButtonVariant;
+  size?: ButtonSize;
   onPress?: () => void;
   disabled?: boolean;
+  isLoading?: boolean;
 };
 
 export function Button(props: ButtonProps): React.JSX.Element {
-  const {children, variant = ButtonVariant.Primary, onPress, disabled = false} =
-    props;
+  const {
+    children,
+    variant = ButtonVariant.Primary,
+    size = ButtonSize.Normal,
+    onPress,
+    disabled = false,
+    isLoading = false,
+  } = props;
+  const isDisabled = disabled || isLoading;
   const textStyleByVariant = (() => {
     switch (variant) {
       case ButtonVariant.Secondary:
@@ -52,63 +67,52 @@ export function Button(props: ButtonProps): React.JSX.Element {
         return styles.buttonPrimary;
     }
   })();
+  const buttonStyleBySize =
+    size === ButtonSize.Small
+      ? { paddingVertical: 6, paddingHorizontal: 10 }
+      : { paddingVertical: 10, paddingHorizontal: 16 };
+  const textStyleBySize =
+    size === ButtonSize.Small ? { fontSize: 13 } : { fontSize: 15 };
+  const textColor = (() => {
+    if (isDisabled) {
+      return Color.surfaceLight;
+    }
+    switch (variant) {
+      case ButtonVariant.Secondary:
+      case ButtonVariant.Tertiary:
+      case ButtonVariant.Ghost:
+        return Color.textPrimaryLight;
+      case ButtonVariant.Text:
+      case ButtonVariant.Destructive:
+      case ButtonVariant.Primary:
+      default:
+        return Color.white;
+    }
+  })();
 
   return (
     <Pressable
-      style={[styles.buttonBase, buttonStyleByVariant, disabled && styles.buttonDisabled]}
-      disabled={disabled}
+      style={[
+        styles.buttonBase,
+        buttonStyleBySize,
+        buttonStyleByVariant,
+        isDisabled && styles.buttonDisabled,
+      ]}
+      disabled={isDisabled}
       onPress={onPress}>
-      <Text style={[styles.textBase, textStyleByVariant, disabled && styles.textDisabled]}>
-        {children}
-      </Text>
+      {isLoading ? (
+        <ActivityIndicator color={textColor} size="small" />
+      ) : (
+        <RNText
+          style={[
+            styles.textBase,
+            textStyleBySize,
+            textStyleByVariant,
+            isDisabled && styles.textDisabled,
+          ]}>
+          {children}
+        </RNText>
+      )}
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  buttonBase: {
-    alignSelf: 'flex-start',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonPrimary: {
-    backgroundColor: Color.primary,
-  },
-  buttonSecondary: {
-    backgroundColor: Color.gray200,
-  },
-  buttonTertiary: {
-    backgroundColor: Color.surfaceLight,
-    borderWidth: 1,
-    borderColor: Color.borderLight,
-  },
-  buttonTextVariant: {
-    backgroundColor: Color.transparent,
-  },
-  buttonGhost: {
-    backgroundColor: Color.transparent,
-    borderWidth: 1,
-    borderColor: Color.borderLight,
-  },
-  buttonDestructive: {
-    backgroundColor: Color.destructive,
-  },
-  buttonDisabled: {
-    backgroundColor: Color.textSecondaryDark,
-  },
-  textBase: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  textLight: {
-    color: Color.white,
-  },
-  textDark: {
-    color: Color.textPrimaryLight,
-  },
-  textDisabled: {
-    color: Color.surfaceLight,
-  },
-});

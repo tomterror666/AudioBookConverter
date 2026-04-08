@@ -1,4 +1,4 @@
-import {Platform} from 'react-native';
+import { Platform } from "react-native";
 
 /**
  * Ob „cuda“ als Gerät auf dieser Plattform unterstützt wird.
@@ -7,10 +7,10 @@ import {Platform} from 'react-native';
  * Treiber/GPU-Erkennung kann später nativ ergänzt werden).
  */
 export function isCudaDeviceSupportedOnThisPlatform(): boolean {
-  if (Platform.OS === 'macos') {
+  if (Platform.OS === "macos") {
     return false;
   }
-  if (Platform.OS === 'windows') {
+  if (Platform.OS === "windows") {
     return true;
   }
   return false;
