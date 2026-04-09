@@ -16,24 +16,22 @@ export function Mp3CountModal(props: Mp3CountModalProps): React.JSX.Element {
   return (
     <Modal
       visible={visible}
-      headline="MP3-Dateien"
+      headline="MP3 files"
       buttonConfig={[
         {
-          label: "Abbrechen",
+          label: "Cancel",
           variant: ButtonVariant.Secondary,
           onPress: onCancel,
         },
         {
-          label: "Weiter",
+          label: "Continue",
           variant: ButtonVariant.Primary,
           onPress: onContinue,
         },
       ]}
       onRequestClose={onCancel}>
       <Label
-        title={`Im ausgewählten Ordner wurden ${
-          mp3Count ?? 0
-        } MP3-Datei(en) gefunden (inkl. Unterordner).`}
+        title={`Found ${mp3Count ?? 0} MP3 file(s) in the selected folder (including subfolders).`}
         variant={LabelVariant.Normal}
       />
     </Modal>

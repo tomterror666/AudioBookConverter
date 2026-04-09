@@ -7,8 +7,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   DeviceEventEmitter,
-  GestureResponderEvent,
-  LayoutChangeEvent,
   NativeModules,
   Platform,
   Pressable,
@@ -18,16 +16,17 @@ import {
   View,
 } from "react-native";
 import { openFolder } from "react-native-file-panel";
-import { DependencyStatusPanel } from "./components/DependencyStatusPanel";
 import { Box } from "./components/ui/Box";
+import { SettingsGearOverlay } from "./components/SettingsGearOverlay";
+import { Progress, ProgressSize } from "./components/ui/Progress";
 import { Button, ButtonVariant } from "./components/ui/Button";
 import { Label, LabelAlign, LabelVariant } from "./components/ui/Label";
 import {
+  Color,
   CONVERSION_STEP_TITLES,
   DEVICE_OPTIONS,
   MODE_OPTIONS,
   Size,
-  THUMB_SIZE,
 } from "./constants";
 import {
   CreateAudiobookM4bModal,
@@ -35,14 +34,20 @@ import {
   EmbedChaptersInM4aModal,
   InfoModal,
   Mp3CountModal,
+  PythonInfoModal,
   SelectionModal,
 } from "./modals";
 import {
   allDependencyLedsGreen,
   type DependencyCheckResult,
   type DependencyStatuses,
+  runDependencyChecks,
 } from "./utils/dependencyStatus";
 import { isCudaDeviceSupportedOnThisPlatform } from "./utils/deviceCudaSupport";
+import {
+  fetchGoogleBooksFirstCover,
+  perryRhodanSearchQueryFromPath,
+} from "./utils/googleBooksCover";
 import { styles } from "./App.styles";
 import {
   ConversionCancelledError,
@@ -51,39 +56,48 @@ import {
   createMp4WithChapterMarkers,
   isConversionCancelled,
   locateChapters,
+  type AudiobookM4bMetadata,
 } from "./utils/conversionPipeline";
 
 type DependencyStatusNativeModule = {
   selectDirectory?: () => Promise<string | null>;
 };
 
+type BookCoverPreviewState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | {
+      status: "ok";
+      uri: string;
+      title: string | null;
+      authors: string | null;
+    }
+  | { status: "empty" }
+  | { status: "error" };
+
 function App(): React.JSX.Element {
   const [progress, setProgress] = useState(0);
-  const [trackWidth, setTrackWidth] = useState(0);
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(
     null,
   );
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
-  /** Aktueller Pipeline-Schritt 1…4, 0 = inaktiv */
+  /** Current pipeline step 1…4, 0 = idle */
   const [conversionStep, setConversionStep] = useState(0);
-  /** Aus Schritt 1 (MP3-Anzahl) — Anzeige „x von N“ in Schritt 2 */
+  /** From step 1 (MP3 count) — “x of N” display in step 2 */
   const [mp3FileTotal, setMp3FileTotal] = useState<number | null>(null);
-  /** In Schritt 2: fertig verarbeitete MP3s (laut Native-Events nach jeder Datei) */
+  /** Step 2: MP3s processed (from native events after each file) */
   const [whisperMp3Done, setWhisperMp3Done] = useState(0);
-  /** Schritt 3 (Merge): Unterfortschritt aus nativen Events (kind === 'merge') */
+  /** Step 3 (merge): sub-progress from native events (kind === 'merge') */
   const [mergeProgressDone, setMergeProgressDone] = useState(0);
   const [mergeProgressTotal, setMergeProgressTotal] = useState(0);
-  /** Schritt 3: erkannte Kapitel (marks) oder MP3-Dateien in Timeline-Reihenfolge */
-  const [mergeChapterCurrent, setMergeChapterCurrent] = useState(0);
-  const [mergeChapterTotal, setMergeChapterTotal] = useState(0);
-  const [mergeChapterMode, setMergeChapterMode] = useState<
-    "marks" | "mp3" | null
-  >(null);
   const [dependencyStatuses, setDependencyStatuses] =
     useState<DependencyStatuses | null>(null);
-  const trackLayout = useRef({ width: 300 });
+  const [pythonInfoVisible, setPythonInfoVisible] = useState(false);
+  /** After a full successful run, keep all four step circles filled until the next start. */
+  const [conversionStepsListComplete, setConversionStepsListComplete] =
+    useState(false);
   const [mp3ConfirmVisible, setMp3ConfirmVisible] = useState(false);
   const [pendingMp3Count, setPendingMp3Count] = useState<number | null>(null);
   const mp3ConfirmResolver = useRef<((confirmed: boolean) => void) | null>(
@@ -111,6 +125,25 @@ function App(): React.JSX.Element {
   const selectionResolver = useRef<((value: string | null) => void) | null>(
     null,
   );
+  const [bookCoverPreview, setBookCoverPreview] =
+    useState<BookCoverPreviewState>({ status: "idle" });
+  const googleBooksM4bMetaRef = useRef<AudiobookM4bMetadata | null>(null);
+
+  useEffect(() => {
+    if (bookCoverPreview.status === "ok") {
+      googleBooksM4bMetaRef.current = {
+        coverUrl: bookCoverPreview.uri,
+        ...(bookCoverPreview.title?.trim()
+          ? { title: bookCoverPreview.title.trim() }
+          : {}),
+        ...(bookCoverPreview.authors?.trim()
+          ? { author: bookCoverPreview.authors.trim() }
+          : {}),
+      };
+    } else {
+      googleBooksM4bMetaRef.current = null;
+    }
+  }, [bookCoverPreview]);
 
   const onDependencyCheckResult = useCallback(
     (result: DependencyCheckResult) => {
@@ -144,9 +177,9 @@ function App(): React.JSX.Element {
         const remaining = Math.max(0, chapterLabels.length - shown.length);
         const listPart =
           shown.length > 0 ? `\n\n${shown.map(l => `• ${l}`).join("\n")}` : "";
-        const morePart = remaining > 0 ? `\n… und ${remaining} weitere` : "";
+        const morePart = remaining > 0 ? `\n… and ${remaining} more` : "";
         setStep2SummaryContent(
-          `Es wurden ${chapterCount} Kapitel erkannt.${listPart}${morePart}`,
+          `Detected ${chapterCount} chapters.${listPart}${morePart}`,
         );
         setStep2SummaryVisible(true);
         step2SummaryResolver.current = resolve;
@@ -166,7 +199,7 @@ function App(): React.JSX.Element {
     (mergedPath: string): Promise<void> =>
       new Promise(resolve => {
         setStep3SummaryContent(
-          `Schritt 3 abgeschlossen.\n\nZusammengeführte Datei:\n${mergedPath}`,
+          `Step 3 complete.\n\nMerged file:\n${mergedPath}`,
         );
         setStep3SummaryVisible(true);
         step3SummaryResolver.current = resolve;
@@ -186,7 +219,7 @@ function App(): React.JSX.Element {
     (m4bPath: string): Promise<void> =>
       new Promise(resolve => {
         setStep4SuccessContent(
-          `Die Konvertierung ist abgeschlossen.\n\nAudiobook (M4B):\n${m4bPath}`,
+          `Conversion complete.\n\nAudiobook (M4B):\n${m4bPath}`,
         );
         setStep4SuccessVisible(true);
         step4SuccessResolver.current = resolve;
@@ -251,18 +284,38 @@ function App(): React.JSX.Element {
     conversionStep === 3 && mergeProgressTotal > 0
       ? Math.max(0, Math.min(1, mergeProgressDone / mergeProgressTotal))
       : null;
-  const displayProgress =
-    step2SliderProgress != null
-      ? step2SliderProgress
-      : step3SliderProgress != null
-      ? step3SliderProgress
-      : progress;
+
+  const conversionStepListCircleValue = (step: 1 | 2 | 3 | 4): number => {
+    if (conversionStepsListComplete) {
+      return 1;
+    }
+    if (!isConverting || conversionStep === 0) {
+      return 0;
+    }
+    if (step < conversionStep) {
+      return 1;
+    }
+    if (step > conversionStep) {
+      return 0;
+    }
+    if (step === 2) {
+      return step2SliderProgress ?? 0;
+    }
+    if (step === 3) {
+      const p = step3SliderProgress ?? progress;
+      return Math.max(0, Math.min(1, p));
+    }
+    if (step === 4) {
+      return Math.max(0, Math.min(1, progress));
+    }
+    return 0;
+  };
 
   useEffect(() => {
     if (Platform.OS !== "macos") {
       return;
     }
-    // Native ruft RCTDeviceEventEmitter.emit auf (siehe DependencyStatus.mm).
+    // Native emits via RCTDeviceEventEmitter (see DependencyStatus.mm).
     const sub = DeviceEventEmitter.addListener(
       "WhisperScanProgress",
       (payload: {
@@ -274,23 +327,6 @@ function App(): React.JSX.Element {
         chapterMode?: string;
       }) => {
         const isMerge = payload?.kind === "merge";
-        if (isMerge) {
-          const chC = payload?.chapterCurrent;
-          const chT = payload?.chapterTotal;
-          if (
-            chC != null &&
-            chT != null &&
-            Number.isFinite(Number(chC)) &&
-            Number.isFinite(Number(chT))
-          ) {
-            setMergeChapterCurrent(Math.max(0, Math.floor(Number(chC))));
-            setMergeChapterTotal(Math.max(0, Math.floor(Number(chT))));
-            const md = payload?.chapterMode;
-            if (md === "marks" || md === "mp3") {
-              setMergeChapterMode(md);
-            }
-          }
-        }
         const cur = Number(payload?.current);
         const tot = Number(payload?.total);
         if (!Number.isFinite(cur) || !Number.isFinite(tot) || tot <= 0) {
@@ -311,25 +347,67 @@ function App(): React.JSX.Element {
     return () => sub.remove();
   }, []);
 
-  const handleTrackLayout = (e: LayoutChangeEvent) => {
-    const { width } = e.nativeEvent.layout;
-    if (width > 0) {
-      trackLayout.current = { width };
-      setTrackWidth(width);
-    }
-  };
-
-  const handlePress = (e: GestureResponderEvent) => {
-    if (isConverting && (conversionStep === 2 || conversionStep === 3)) {
+  useEffect(() => {
+    if (Platform.OS !== "macos") {
       return;
     }
-    const { locationX } = e.nativeEvent;
-    const { width } = trackLayout.current;
-    if (width > 0) {
-      const newValue = Math.max(0, Math.min(1, locationX / width));
-      setProgress(newValue);
+    const sub = DeviceEventEmitter.addListener("OpenPythonInfoModal", () => {
+      setPythonInfoVisible(true);
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "macos") {
+      return;
     }
-  };
+    let cancelled = false;
+    void runDependencyChecks().then(result => {
+      if (!cancelled) {
+        setDependencyStatuses(result.statuses);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDirectory?.trim()) {
+      setBookCoverPreview({ status: "idle" });
+      return;
+    }
+    const q = perryRhodanSearchQueryFromPath(selectedDirectory);
+    if (!q) {
+      setBookCoverPreview({ status: "idle" });
+      return;
+    }
+    const ac = new AbortController();
+    setBookCoverPreview({ status: "loading" });
+    void fetchGoogleBooksFirstCover(q, { signal: ac.signal })
+      .then(result => {
+        if (ac.signal.aborted) {
+          return;
+        }
+        if (result) {
+          setBookCoverPreview({
+            status: "ok",
+            uri: result.coverUrl,
+            title: result.title,
+            authors: result.authors,
+          });
+        } else {
+          setBookCoverPreview({ status: "empty" });
+        }
+      })
+      .catch(() => {
+        if (ac.signal.aborted) {
+          return;
+        }
+        setBookCoverPreview({ status: "error" });
+      });
+    return () => ac.abort();
+  }, [selectedDirectory]);
 
   const handleVerzeichnisPress = async () => {
     try {
@@ -351,14 +429,14 @@ function App(): React.JSX.Element {
         }
       } else {
         showInfoModal(
-          "Nicht unterstützt",
-          "Der Verzeichnis-Dialog wird nur auf macOS und Windows unterstützt.",
+          "Not supported",
+          "The folder picker is only supported on macOS and Windows.",
         );
       }
     } catch (error) {
       showInfoModal(
-        "Fehler",
-        "Verzeichnis konnte nicht ausgewählt werden: " +
+        "Error",
+        "Could not choose folder: " +
           (error instanceof Error ? error.message : String(error)),
       );
     }
@@ -366,8 +444,8 @@ function App(): React.JSX.Element {
 
   const handleModePress = async () => {
     const picked = await askSelection(
-      "Mode wählen",
-      "Bitte wählen Sie einen Modus",
+      "Choose mode",
+      "Please choose a model size",
       MODE_OPTIONS,
       selectedMode,
     );
@@ -378,8 +456,8 @@ function App(): React.JSX.Element {
 
   const handleDevicePress = async () => {
     const picked = await askSelection(
-      "Device wählen",
-      "Bitte wählen Sie ein Gerät",
+      "Choose device",
+      "Please choose a compute device",
       DEVICE_OPTIONS,
       selectedDevice,
     );
@@ -398,6 +476,8 @@ function App(): React.JSX.Element {
 
   const depsOkForStart =
     Platform.OS !== "macos" || allDependencyLedsGreen(dependencyStatuses);
+  const depsNeedAttention =
+    dependencyStatuses != null && !allDependencyLedsGreen(dependencyStatuses);
   const startLooksInactive = !formComplete || isConverting || !depsOkForStart;
 
   const handleStartPress = () => {
@@ -414,7 +494,7 @@ function App(): React.JSX.Element {
         selectedDirectory.trim().length > 0
       )
     ) {
-      missing.push("Verzeichnis");
+      missing.push("Folder");
     }
     if (!(selectedMode != null && selectedMode.trim().length > 0)) {
       missing.push("Mode");
@@ -424,8 +504,8 @@ function App(): React.JSX.Element {
     }
     if (missing.length > 0) {
       showInfoModal(
-        "Angaben unvollständig",
-        `Bitte wählen Sie noch:\n${missing.map(m => `• ${m}`).join("\n")}`,
+        "Incomplete",
+        `Please also choose:\n${missing.map(m => `• ${m}`).join("\n")}`,
       );
       return;
     }
@@ -434,14 +514,15 @@ function App(): React.JSX.Element {
     if (deviceLower === "cuda" && !isCudaDeviceSupportedOnThisPlatform()) {
       const cudaBody =
         Platform.OS === "macos"
-          ? "Auf macOS steht kein CUDA-Gerät (NVIDIA) zur Verfügung. Bitte wählen Sie „cpu“."
-          : "CUDA wird auf dieser Plattform nicht unterstützt. Bitte wählen Sie „cpu“.";
-      showInfoModal("CUDA nicht verfügbar", cudaBody);
+          ? "macOS does not support NVIDIA CUDA. Please choose “cpu”."
+          : "CUDA is not supported on this platform. Please choose “cpu”.";
+      showInfoModal("CUDA unavailable", cudaBody);
       return;
     }
 
     void (async () => {
       setIsConverting(true);
+      setConversionStepsListComplete(false);
       try {
         setConversionStep(1);
         const mp3Count = await countMp3Files(selectedDirectory!.trim());
@@ -466,9 +547,6 @@ function App(): React.JSX.Element {
         setConversionStep(3);
         setMergeProgressDone(0);
         setMergeProgressTotal(0);
-        setMergeChapterCurrent(0);
-        setMergeChapterTotal(0);
-        setMergeChapterMode(null);
         setProgress(0);
         const mergedPath = await createMp4WithChapterMarkers(
           selectedDirectory!.trim(),
@@ -476,25 +554,32 @@ function App(): React.JSX.Element {
         );
         await askStep3Summary(mergedPath);
         setConversionStep(4);
+        setProgress(0);
+        const metaNow = googleBooksM4bMetaRef.current;
+        const hasAnyMeta =
+          metaNow &&
+          (Boolean(metaNow.coverUrl?.trim()) ||
+            Boolean(metaNow.title?.trim()) ||
+            Boolean(metaNow.author?.trim()));
         const m4bPath = await createAudiobookFile(
           mergedPath,
           selectedDirectory!.trim(),
+          hasAnyMeta ? metaNow : null,
         );
         await showStep4Success(m4bPath);
+        setConversionStepsListComplete(true);
       } catch (e) {
+        setConversionStepsListComplete(false);
         if (isConversionCancelled(e)) {
           return;
         }
-        showInfoModal("Fehler", e instanceof Error ? e.message : String(e));
+        showInfoModal("Error", e instanceof Error ? e.message : String(e));
       } finally {
         setConversionStep(0);
         setMp3FileTotal(null);
         setWhisperMp3Done(0);
         setMergeProgressDone(0);
         setMergeProgressTotal(0);
-        setMergeChapterCurrent(0);
-        setMergeChapterTotal(0);
-        setMergeChapterMode(null);
         setProgress(0);
         setIsConverting(false);
       }
@@ -511,6 +596,10 @@ function App(): React.JSX.Element {
             align={LabelAlign.Center}
           />
         </Box>
+        <SettingsGearOverlay
+          attention={depsNeedAttention}
+          onPress={() => setPythonInfoVisible(true)}
+        />
         <ScrollView
           style={styles.mainScroll}
           contentContainerStyle={styles.mainScrollContent}
@@ -522,15 +611,15 @@ function App(): React.JSX.Element {
                 <View style={styles.verzeichnisRow}>
                   <View style={styles.fieldLabelContainer}>
                     <Label
-                      title="Verzeichnis:"
+                      title="Folder:"
                       variant={LabelVariant.NormalBold}
                       align={LabelAlign.Left}
                     />
                   </View>
-                  <Pressable
-                    style={styles.pathInputWrapper}
-                    onPress={handleVerzeichnisPress}>
-                    <View style={styles.pathInput}>
+                  <View style={[styles.pathInputWrapper, styles.pathInputOutline]}>
+                    <Pressable
+                      style={styles.pathInputPressable}
+                      onPress={handleVerzeichnisPress}>
                       <Text
                         style={[
                           styles.pathInputText,
@@ -540,8 +629,8 @@ function App(): React.JSX.Element {
                         ellipsizeMode="middle">
                         {selectedDirectory ?? "AudioBooks"}
                       </Text>
-                    </View>
-                  </Pressable>
+                    </Pressable>
+                  </View>
                 </View>
                 <View style={styles.modeRow}>
                   <View style={styles.fieldLabelContainer}>
@@ -551,10 +640,10 @@ function App(): React.JSX.Element {
                       align={LabelAlign.Left}
                     />
                   </View>
-                  <Pressable
-                    style={styles.modeInputWrapper}
-                    onPress={handleModePress}>
-                    <View style={styles.pathInput}>
+                  <View style={[styles.modeInputWrapper, styles.pathInputOutline]}>
+                    <Pressable
+                      style={styles.pathInputPressable}
+                      onPress={handleModePress}>
                       <Text
                         style={[
                           styles.pathInputText,
@@ -562,8 +651,8 @@ function App(): React.JSX.Element {
                         ]}>
                         {selectedMode ?? "base"}
                       </Text>
-                    </View>
-                  </Pressable>
+                    </Pressable>
+                  </View>
                 </View>
                 <View style={styles.deviceRow}>
                   <View style={styles.fieldLabelContainer}>
@@ -573,10 +662,11 @@ function App(): React.JSX.Element {
                       align={LabelAlign.Left}
                     />
                   </View>
-                  <Pressable
-                    style={styles.deviceInputWrapper}
-                    onPress={handleDevicePress}>
-                    <View style={styles.pathInput}>
+                  <View
+                    style={[styles.deviceInputWrapper, styles.pathInputOutline]}>
+                    <Pressable
+                      style={styles.pathInputPressable}
+                      onPress={handleDevicePress}>
                       <Text
                         style={[
                           styles.pathInputText,
@@ -584,8 +674,8 @@ function App(): React.JSX.Element {
                         ]}>
                         {selectedDevice ?? "cpu"}
                       </Text>
-                    </View>
-                  </Pressable>
+                    </Pressable>
+                  </View>
                 </View>
                 <View style={styles.startButtonWrapper}>
                   <Button
@@ -595,72 +685,33 @@ function App(): React.JSX.Element {
                     Start
                   </Button>
                 </View>
+                <View style={styles.conversionStepsList}>
+                  {([1, 2, 3, 4] as const).map(step => (
+                    <View key={step} style={styles.conversionStepListRow}>
+                      <View style={styles.conversionStepListLabelWrap}>
+                        <Label
+                          title={`${CONVERSION_STEP_TITLES[step]}:`}
+                          variant={LabelVariant.Normal}
+                          color={Color.gray700}
+                          align={LabelAlign.Left}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        />
+                      </View>
+                      <View style={styles.conversionStepListProgress}>
+                        <Progress
+                          size={ProgressSize.Small}
+                          color={Color.primary}
+                          value={conversionStepListCircleValue(step)}
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
               </View>
-            </View>
-            <View style={styles.statusAside}>
-              <DependencyStatusPanel onCheckResult={onDependencyCheckResult} />
             </View>
           </View>
         </ScrollView>
-        <View style={styles.sliderContainer}>
-          {conversionStep > 0 && (
-            <Text style={styles.progressStepLabel}>
-              Schritt {conversionStep}/4:{" "}
-              {CONVERSION_STEP_TITLES[conversionStep] ?? "—"}
-              {conversionStep === 2 &&
-              mp3FileTotal != null &&
-              mp3FileTotal >= 0 ? (
-                <Text style={styles.progressStepMp3}>
-                  {" "}
-                  ({whisperMp3Done} von {mp3FileTotal})
-                </Text>
-              ) : null}
-              {conversionStep === 3 && mergeProgressTotal > 0 ? (
-                <Text style={styles.progressStepMp3}>
-                  {" "}
-                  (
-                  {mergeChapterTotal > 0 && mergeChapterCurrent > 0 ? (
-                    <>
-                      {mergeChapterMode === "mp3"
-                        ? `Datei ${mergeChapterCurrent}/${mergeChapterTotal}`
-                        : `Kapitel ${mergeChapterCurrent}/${mergeChapterTotal}`}
-                      {" · "}
-                    </>
-                  ) : null}
-                  {Math.min(
-                    100,
-                    Math.round((100 * mergeProgressDone) / mergeProgressTotal),
-                  )}
-                  % fertig
-                  {mp3FileTotal != null && mp3FileTotal > 0
-                    ? ` · ${mp3FileTotal} MP3-Dateien`
-                    : ""}
-                  )
-                </Text>
-              ) : null}
-            </Text>
-          )}
-          <Pressable
-            style={styles.sliderTrack}
-            onLayout={handleTrackLayout}
-            onPress={handlePress}>
-            <View style={styles.sliderTrackBg} />
-            <View
-              style={[
-                styles.sliderFill,
-                { width: displayProgress * trackWidth },
-              ]}
-            />
-            <View
-              style={[
-                styles.sliderThumb,
-                {
-                  left: displayProgress * trackWidth - THUMB_SIZE / 2,
-                },
-              ]}
-            />
-          </Pressable>
-        </View>
       </View>
       <Mp3CountModal
         visible={mp3ConfirmVisible}
@@ -696,6 +747,11 @@ function App(): React.JSX.Element {
         options={selectionOptions}
         selectedValue={selectionInitialValue}
         onSelect={resolveSelection}
+      />
+      <PythonInfoModal
+        visible={pythonInfoVisible}
+        onClose={() => setPythonInfoVisible(false)}
+        onDependencyCheckResult={onDependencyCheckResult}
       />
     </SafeAreaView>
   );

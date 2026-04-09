@@ -124,8 +124,8 @@ export const MODE_OPTIONS = [
 ] as const;
 export const DEVICE_OPTIONS = ["cpu", "cuda"] as const;
 export const CONVERSION_STEP_TITLES: Record<number, string> = {
-  1: "MP3-Dateien zählen",
-  2: "Kapitelpositionen ermitteln",
-  3: "Kapitel in die M4A einbetten",
-  4: "Audiobook (M4B) erstellen",
+  1: "Count MP3 files",
+  2: "Detect chapter positions",
+  3: "Embed chapters in M4A",
+  4: "Create audiobook (M4B)",
 };

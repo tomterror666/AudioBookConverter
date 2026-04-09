@@ -4,7 +4,7 @@
 @interface DependencyStatus : NSObject <RCTBridgeModule>
 @end
 
-/// Gleicher Pfad wie RCTEventEmitter: JS lauscht auf DeviceEventEmitter („RCTDeviceEventEmitter“).
+/// Same path as RCTEventEmitter: JS listens on DeviceEventEmitter ("RCTDeviceEventEmitter").
 static void EmitConversionProgressToJS(RCTCallableJSModules *_Nullable jsModules,
                                      NSInteger cur,
                                      NSInteger tot,
@@ -22,7 +22,7 @@ static void EmitConversionProgressToJS(RCTCallableJSModules *_Nullable jsModules
   });
 }
 
-/// Merge: Kapitel- oder Datei-Spur, siehe merge_mp3_chapters.py — [ch:3:32:marks]
+/// Merge: chapter or file progress stream; see merge_mp3_chapters.py — [ch:3:32:marks]
 static void EmitMergeChapterTagToJS(RCTCallableJSModules *_Nullable jsModules,
                                    NSInteger chapterCur,
                                    NSInteger chapterTot,
@@ -159,8 +159,8 @@ static NSString *_Nullable RunShellSeparatingStdoutStreamingStderr(NSString *com
 
     [task launch];
 
-    // WICHTIG: readDataOfLength:blockiert bis N Bytes oder EOF — stderr-Zeilen kämen erst am Ende.
-    // availableData liefert jeweils die aktuell verfügbaren Bytes (nach jeder Zeile mit flush).
+    // readDataOfLength: blocks until N bytes or EOF — stderr lines would only arrive at end.
+    // availableData returns whatever bytes are ready (after each line with flush).
     while (YES) {
       @autoreleasepool {
         NSData *chunk = [errRead availableData];
@@ -194,7 +194,7 @@ static NSString *_Nullable RunShellSeparatingStdoutStreamingStderr(NSString *com
   }
 }
 
-/// Volle Ausgabe (mehrzeilig), für Update-Logs
+/// Full multi-line output for update logs
 static NSString *_Nullable RunShellFull(NSString *command)
 {
   @try {
@@ -266,7 +266,7 @@ static void AppendLog(NSMutableString *log, NSString *title, NSString *_Nullable
       [log appendString:@"\n"];
     }
   } else {
-    [log appendString:@"(keine Ausgabe)\n"];
+    [log appendString:@"(no output)\n"];
   }
   [log appendString:@"\n"];
 }
@@ -292,7 +292,7 @@ static NSString *AppVenvRoot(void)
   return [[AppProjectRoot() stringByAppendingPathComponent:@".audioBookConverter"] stringByStandardizingPath];
 }
 
-/// venvRoot = Ordner der venv (enthält bin/python3). nil/leer → system "python3"
+/// venvRoot = venv directory (contains bin/python3). nil/empty → system "python3"
 static NSString *PythonExecutableToken(NSString *_Nullable venvRoot)
 {
   if (venvRoot == nil || venvRoot.length == 0) {
@@ -332,7 +332,7 @@ static BOOL IsSupportedPythonForFasterWhisper(int major, int minor)
   return minor >= 10 && minor <= 12;
 }
 
-/// Für venv-Erzeugung bevorzugte Interpreter (falls vorhanden), sonst Fallback "python3".
+/// Preferred interpreter for creating venv if present, else "python3".
 static NSString *PreferredSystemPythonForVenv(void)
 {
   NSFileManager *fm = [NSFileManager defaultManager];
@@ -398,7 +398,7 @@ static NSString *CheckPip(NSString *pyExe)
   if (![scanner scanDouble:&major]) {
     return @"wrong_version";
   }
-  /// Mindestversion pip (Major.Minor aus erstem Token), hier 26.0.0 → Major ≥ 26
+  /// Minimum pip version (major.minor from first token), e.g. 26.0.0 → major ≥ 26
   if (major >= 26.0) {
     return @"ok";
   }
@@ -492,7 +492,7 @@ static NSString *_Nullable BrewExecutablePath(void)
   return which.length > 0 ? which : nil;
 }
 
-/// Ausführbaren venv-Python als sh-Token, sonst reject und nil.
+/// Executable venv Python as sh token, else reject and nil.
 static NSString *_Nullable VenvPythonTokenOrReject(NSFileManager *fm,
                                                     NSString *venv,
                                                     RCTPromiseRejectBlock reject)
@@ -506,7 +506,7 @@ static NSString *_Nullable VenvPythonTokenOrReject(NSFileManager *fm,
     return ShellQuotePath(py);
   }
   reject(@"no_venv",
-         @"Kein Python in der Projekt-venv (.audioBookConverter im Repo). Zuerst bei „Python“ auf Install tippen.",
+         @"No Python in the project venv (.audioBookConverter in the repo). Tap Install for Python first.",
          nil);
   return nil;
 }
@@ -526,16 +526,16 @@ static void RunSingleDependency(NSString *key,
   if ([key isEqualToString:@"python"]) {
     if (install) {
       if ([fm isExecutableFileAtPath:py3path]) {
-        AppendLog(log, @"Python", @"venv existiert bereits.\n");
+        AppendLog(log, @"Python", @"venv already exists.\n");
       } else {
         NSString *venvPython = PreferredSystemPythonForVenv();
         NSString *createCmd =
             [NSString stringWithFormat:@"%@ -m venv %@", venvPython, ShellQuotePath(venv)];
         AppendLog(log, @"venv Python", [NSString stringWithFormat:@"%@\n", venvPython]);
-        AppendLog(log, @"venv anlegen", RunShellFull(createCmd));
+        AppendLog(log, @"Create venv", RunShellFull(createCmd));
         if (![fm isExecutableFileAtPath:py3path]) {
           reject(@"python",
-                 @"Konnte die Projekt-venv (.audioBookConverter) nicht anlegen. Ist python3 im PATH?",
+                 @"Could not create the project venv (.audioBookConverter). Is python3 on PATH?",
                  nil);
           return;
         }
@@ -546,13 +546,13 @@ static void RunSingleDependency(NSString *key,
         AppendLog(log, @"Python (Homebrew)",
                   RunShellFull([NSString stringWithFormat:@"%@ upgrade python 2>&1", ShellQuotePath(brew)]));
       } else {
-        AppendLog(log, @"Homebrew", @"Nicht gefunden — Python bitte manuell aktualisieren.\n");
+        AppendLog(log, @"Homebrew", @"Not found — please update Python manually.\n");
       }
-      AppendLog(log, @"Hinweis",
-                @"Nach Python-Upgrade ggf. Ordner .audioBookConverter im Projekt löschen und bei „Python“ "
-                @"Install ausführen, um die venv neu zu erzeugen.\n");
+      AppendLog(log, @"Note",
+                @"After a Python upgrade you may delete the .audioBookConverter folder in the project and run "
+                @"Install for Python again to recreate the venv.\n");
     } else {
-      reject(@"bad_action", @"Unbekannte Aktion.", nil);
+      reject(@"bad_action", @"Unknown action.", nil);
       return;
     }
   } else if ([key isEqualToString:@"pip"]) {
@@ -568,7 +568,7 @@ static void RunSingleDependency(NSString *key,
   } else if ([key isEqualToString:@"ffmpeg"]) {
     NSString *brew = BrewExecutablePath();
     if (!brew) {
-      reject(@"no_brew", @"Homebrew nicht gefunden — ffmpeg bitte manuell installieren.", nil);
+      reject(@"no_brew", @"Homebrew not found — please install ffmpeg manually.", nil);
       return;
     }
     NSString *bq = ShellQuotePath(brew);
@@ -577,7 +577,7 @@ static void RunSingleDependency(NSString *key,
     } else if (update) {
       AppendLog(log, @"ffmpeg upgrade", RunShellFull([NSString stringWithFormat:@"%@ upgrade ffmpeg 2>&1", bq]));
     } else {
-      reject(@"bad_action", @"Unbekannte Aktion.", nil);
+      reject(@"bad_action", @"Unknown action.", nil);
       return;
     }
   } else if ([key isEqualToString:@"fasterWhisper"]) {
@@ -592,11 +592,11 @@ static void RunSingleDependency(NSString *key,
       AppendLog(log, @"faster-whisper upgrade",
                 RunShellFull([NSString stringWithFormat:@"%@ -m pip install -U faster-whisper 2>&1", py]));
     } else {
-      reject(@"bad_action", @"Unbekannte Aktion.", nil);
+      reject(@"bad_action", @"Unknown action.", nil);
       return;
     }
   } else {
-    reject(@"bad_key", @"Unbekannte Abhängigkeit.", nil);
+    reject(@"bad_key", @"Unknown dependency.", nil);
     return;
   }
 
@@ -610,11 +610,11 @@ static void CountMp3FilesInDirectoryResolved(NSString *dirPath,
   NSFileManager *fm = [NSFileManager defaultManager];
   BOOL isDir = NO;
   if (![fm fileExistsAtPath:dirPath isDirectory:&isDir]) {
-    reject(@"enoent", @"Das Verzeichnis existiert nicht.", nil);
+    reject(@"enoent", @"The directory does not exist.", nil);
     return;
   }
   if (!isDir) {
-    reject(@"notdir", @"Der Pfad ist kein Verzeichnis.", nil);
+    reject(@"notdir", @"The path is not a directory.", nil);
     return;
   }
   NSURL *root = [NSURL fileURLWithPath:dirPath isDirectory:YES];
@@ -655,16 +655,16 @@ static BOOL ValidateWhisperParams(NSString *modelSize,
   NSString *ct = computeType.lowercaseString;
   if (![WhisperModelSizes() containsObject:ms]) {
     reject(@"bad_model",
-           @"Ungültige Modellgröße. Erlaubt: tiny, base, small, medium, large.",
+           @"Invalid model size. Allowed: tiny, base, small, medium, large.",
            nil);
     return NO;
   }
   if (![dev isEqualToString:@"cpu"] && ![dev isEqualToString:@"cuda"]) {
-    reject(@"bad_device", @"Ungültiges Gerät. Erlaubt: cpu, cuda.", nil);
+    reject(@"bad_device", @"Invalid device. Allowed: cpu, cuda.", nil);
     return NO;
   }
   if (![ct isEqualToString:@"int8"]) {
-    reject(@"bad_compute", @"Nur compute_type „int8“ wird unterstützt.", nil);
+    reject(@"bad_compute", @"Only compute_type \"int8\" is supported.", nil);
     return NO;
   }
   return YES;
@@ -688,18 +688,18 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   NSFileManager *fm = [NSFileManager defaultManager];
   BOOL isDir = NO;
   if (![fm fileExistsAtPath:rootDir isDirectory:&isDir]) {
-    reject(@"enoent", @"Das Projektverzeichnis existiert nicht.", nil);
+    reject(@"enoent", @"The project directory does not exist.", nil);
     return;
   }
   if (!isDir) {
-    reject(@"notdir", @"Der Pfad ist kein Verzeichnis.", nil);
+    reject(@"notdir", @"The path is not a directory.", nil);
     return;
   }
 
   NSString *ffmpeg = FfmpegExecutablePath();
   if (ffmpeg == nil || ffmpeg.length == 0) {
     reject(@"no_ffmpeg",
-           @"ffmpeg wird benötigt (erste 45 s pro MP3 für Whisper). Bitte installieren oder PATH prüfen.",
+           @"ffmpeg is required (first 45 s per MP3 for Whisper). Install it or check PATH.",
            nil);
     return;
   }
@@ -712,11 +712,11 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   NSString *script =
       [[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:@"whisper_chapter_scan.py"];
   if (![fm isReadableFileAtPath:script]) {
-    reject(@"no_script", @"Datei scripts/whisper_chapter_scan.py im Projekt nicht gefunden.", nil);
+    reject(@"no_script", @"scripts/whisper_chapter_scan.py not found in the project.", nil);
     return;
   }
 
-  /// PYTHONUNBUFFERED: stderr-Zeilen sofort, sonst bleibt Fortschritt bis Prozessende gepuffert.
+  /// PYTHONUNBUFFERED: stderr lines flush immediately; otherwise progress stays buffered until exit.
   NSString *cmd =
       [NSString stringWithFormat:
            @"env PYTHONUNBUFFERED=1 %@ %@ --root-dir %@ --model-size %@ --device %@ --compute-type %@ "
@@ -734,7 +734,7 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
       cmd, stderrAll, &status, jsModulesForProgress, @"whisper");
   NSString *stderrTxt = [stderrAll copy];
   if (stdoutStr == nil) {
-    reject(@"run_failed", @"Whisper-Kapitelsuche konnte nicht gestartet werden (Shell-Fehler).", nil);
+    reject(@"run_failed", @"Whisper chapter scan could not be started (shell error).", nil);
     return;
   }
   if (status != 0) {
@@ -746,14 +746,14 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
       [detail appendString:stdoutStr];
     }
     if (detail.length == 0) {
-      [detail appendString:@"(keine Ausgabe)"];
+      [detail appendString:@"(no output)"];
     }
     if (detail.length > 2000) {
       [detail deleteCharactersInRange:NSMakeRange(2000, detail.length - 2000)];
       [detail appendString:@"…"];
     }
     reject(@"whisper_failed",
-           [NSString stringWithFormat:@"Whisper-Transkription / Kapitelsuche fehlgeschlagen:\n%@", detail],
+           [NSString stringWithFormat:@"Whisper transcription / chapter scan failed:\n%@", detail],
            nil);
     return;
   }
@@ -761,19 +761,19 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   NSString *trimmed = [stdoutStr stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
   NSData *jsonData = [trimmed dataUsingEncoding:NSUTF8StringEncoding];
   if (!jsonData || trimmed.length == 0) {
-    reject(@"json", @"Antwort von whisper_chapter_scan.py konnte nicht gelesen werden.", nil);
+    reject(@"json", @"Could not read output from whisper_chapter_scan.py.", nil);
     return;
   }
   NSError *err = nil;
   id obj = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&err];
   if (![obj isKindOfClass:[NSDictionary class]] || err != nil) {
-    reject(@"json", @"Ungültiges JSON von whisper_chapter_scan.py.", err);
+    reject(@"json", @"Invalid JSON from whisper_chapter_scan.py.", err);
     return;
   }
   NSDictionary *dict = (NSDictionary *)obj;
   id marks = dict[@"marks"];
   if (![marks isKindOfClass:[NSArray class]]) {
-    reject(@"json", @"JSON enthält kein „marks“-Array.", nil);
+    reject(@"json", @"JSON has no \"marks\" array.", nil);
     return;
   }
   resolve(dict);
@@ -789,17 +789,17 @@ static void CreateMergedAudiobookResolved(NSString *rootDir,
   BOOL isDir = NO;
   NSString *stdRoot = [rootDir stringByStandardizingPath];
   if (![fm fileExistsAtPath:stdRoot isDirectory:&isDir]) {
-    reject(@"enoent", @"Das Projektverzeichnis existiert nicht.", nil);
+    reject(@"enoent", @"The project directory does not exist.", nil);
     return;
   }
   if (!isDir) {
-    reject(@"notdir", @"Der Pfad ist kein Verzeichnis.", nil);
+    reject(@"notdir", @"The path is not a directory.", nil);
     return;
   }
 
   NSString *ffmpeg = FfmpegExecutablePath();
   if (ffmpeg == nil || ffmpeg.length == 0) {
-    reject(@"no_ffmpeg", @"ffmpeg wurde nicht gefunden (PATH / Homebrew).", nil);
+    reject(@"no_ffmpeg", @"ffmpeg not found (PATH / Homebrew).", nil);
     return;
   }
 
@@ -807,14 +807,14 @@ static void CreateMergedAudiobookResolved(NSString *rootDir,
   NSDictionary *payload = @{@"marks" : (marks == nil ? @[] : marks)};
   NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&jerr];
   if (jsonData == nil || jerr != nil) {
-    reject(@"json", @"Kapitel-Daten konnten nicht serialisiert werden.", jerr);
+    reject(@"json", @"Could not serialize chapter data.", jerr);
     return;
   }
 
   NSString *tmpJson =
       [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"audiobook_marks_%u.json", arc4random()]];
   if (![jsonData writeToFile:tmpJson atomically:YES]) {
-    reject(@"io", @"Temporäre JSON-Datei konnte nicht geschrieben werden.", nil);
+    reject(@"io", @"Could not write temporary JSON file.", nil);
     return;
   }
 
@@ -829,7 +829,7 @@ static void CreateMergedAudiobookResolved(NSString *rootDir,
       [[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:@"merge_mp3_chapters.py"];
   if (![fm isReadableFileAtPath:mergeScript]) {
     [fm removeItemAtPath:tmpJson error:nil];
-    reject(@"no_script", @"Datei scripts/merge_mp3_chapters.py im Projekt nicht gefunden.", nil);
+    reject(@"no_script", @"scripts/merge_mp3_chapters.py not found in the project.", nil);
     return;
   }
 
@@ -852,7 +852,7 @@ static void CreateMergedAudiobookResolved(NSString *rootDir,
   [fm removeItemAtPath:tmpJson error:nil];
 
   if (stdoutStr == nil) {
-    reject(@"run_failed", @"Zusammenführung konnte nicht gestartet werden (Shell-Fehler).", nil);
+    reject(@"run_failed", @"Merge could not be started (shell error).", nil);
     return;
   }
   if (status != 0) {
@@ -864,25 +864,97 @@ static void CreateMergedAudiobookResolved(NSString *rootDir,
       [detail appendString:stdoutStr];
     }
     if (detail.length == 0) {
-      [detail appendString:@"(keine Ausgabe)"];
+      [detail appendString:@"(no output)"];
     }
     if (detail.length > 2000) {
       [detail deleteCharactersInRange:NSMakeRange(2000, detail.length - 2000)];
       [detail appendString:@"…"];
     }
-    reject(@"merge_failed", [NSString stringWithFormat:@"ffmpeg / Merge fehlgeschlagen:\n%@", detail], nil);
+    reject(@"merge_failed", [NSString stringWithFormat:@"ffmpeg / merge failed:\n%@", detail], nil);
     return;
   }
 
   if (![fm isReadableFileAtPath:outPath]) {
-    reject(@"io", @"Ausgabedatei wurde nicht erzeugt.", nil);
+    reject(@"io", @"Output file was not created.", nil);
     return;
   }
   resolve(outPath);
 }
 
+static NSString *_Nullable AUBKMetadataString(NSDictionary *_Nullable d, NSString *key)
+{
+  if (![d isKindOfClass:[NSDictionary class]]) {
+    return nil;
+  }
+  id v = d[key];
+  if (![v isKindOfClass:[NSString class]]) {
+    return nil;
+  }
+  NSString *s =
+      [(NSString *)v stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  return s.length > 0 ? s : nil;
+}
+
+static NSString *_Nullable AUBKDownloadCoverToTempFile(NSString *urlString, NSError **_Nullable outError)
+{
+  if (urlString.length == 0) {
+    return nil;
+  }
+  NSURL *url = [NSURL URLWithString:urlString];
+  if (url == nil) {
+    if (outError != NULL) {
+      *outError = [NSError errorWithDomain:@"AudioBookConverter"
+                                        code:10
+                                    userInfo:@{NSLocalizedDescriptionKey : @"Invalid cover URL"}];
+    }
+    return nil;
+  }
+  dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+  __block NSData *gotData = nil;
+  __block NSError *gotErr = nil;
+  NSURLSessionDataTask *task = [[NSURLSession sharedSession]
+      dataTaskWithURL:url
+      completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error != nil) {
+          gotErr = error;
+        } else if (![response isKindOfClass:[NSHTTPURLResponse class]] ||
+                   ((NSHTTPURLResponse *)response).statusCode / 100 != 2) {
+          gotErr = [NSError errorWithDomain:@"AudioBookConverter"
+                                         code:11
+                                     userInfo:@{NSLocalizedDescriptionKey : @"Cover download: HTTP error"}];
+        } else {
+          gotData = data;
+        }
+        dispatch_semaphore_signal(sem);
+      }];
+  [task resume];
+  dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+  if (gotErr != nil) {
+    if (outError != NULL) {
+      *outError = gotErr;
+    }
+    return nil;
+  }
+  if (gotData.length == 0) {
+    return nil;
+  }
+  NSString *path =
+      [[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]]
+          stringByAppendingPathExtension:@"jpg"];
+  NSError *wErr = nil;
+  if (![gotData writeToFile:path options:NSDataWritingAtomic error:&wErr]) {
+    if (outError != NULL) {
+      *outError = wErr;
+    }
+    return nil;
+  }
+  return path;
+}
+
+/// metadata: optional keys title, author, coverUrl (HTTPS; downloaded to temp JPEG).
 static void FinalizeM4bAudiobookResolved(NSString *mergedM4aPath,
                                       NSString *mp3RootDirectory,
+                                      NSDictionary *_Nullable metadata,
                                       RCTPromiseResolveBlock resolve,
                                       RCTPromiseRejectBlock reject)
 {
@@ -892,11 +964,11 @@ static void FinalizeM4bAudiobookResolved(NSString *mergedM4aPath,
 
   BOOL isDir = NO;
   if (![fm fileExistsAtPath:stdMerged isDirectory:&isDir]) {
-    reject(@"enoent", @"Die zusammengeführte M4A wurde nicht gefunden.", nil);
+    reject(@"enoent", @"Merged M4A was not found.", nil);
     return;
   }
   if (isDir) {
-    reject(@"notfile", @"Der Pfad versteckt ein Verzeichnis, keine M4A-Datei.", nil);
+    reject(@"notfile", @"The path is a directory, not an M4A file.", nil);
     return;
   }
 
@@ -904,14 +976,14 @@ static void FinalizeM4bAudiobookResolved(NSString *mergedM4aPath,
   if (![mergedParent isEqualToString:stdRoot]) {
     reject(
         @"path",
-        @"Die M4A muss direkt im gewählten MP3-Ordner liegen (Projektordner der MP3-Dateien).",
+        @"The M4A must sit directly in the selected MP3 folder (MP3 project folder).",
         nil);
     return;
   }
 
   NSString *ffmpeg = FfmpegExecutablePath();
   if (ffmpeg == nil || ffmpeg.length == 0) {
-    reject(@"no_ffmpeg", @"ffmpeg wurde nicht gefunden.", nil);
+    reject(@"no_ffmpeg", @"ffmpeg not found.", nil);
     return;
   }
 
@@ -919,41 +991,90 @@ static void FinalizeM4bAudiobookResolved(NSString *mergedM4aPath,
   if ([fm fileExistsAtPath:destM4b]) {
     NSError *rmErr = nil;
     if (![fm removeItemAtPath:destM4b error:&rmErr]) {
-      reject(@"io", @"Vorhandene M4B konnte nicht überschrieben werden.", rmErr);
+      reject(@"io", @"Could not overwrite existing M4B.", rmErr);
       return;
     }
   }
 
-  NSString *cmd = [NSString stringWithFormat:
-                            @"%@ -y -hide_banner -loglevel error -i %@ -c copy -metadata genre=%@ %@",
-                            ShellQuotePath(ffmpeg),
-                            ShellQuotePath(stdMerged),
-                            ShellQuotePath(@"Audiobook"),
-                            ShellQuotePath(destM4b)];
+  id metaId = metadata;
+  if (metaId == nil || metaId == [NSNull null]) {
+    metaId = nil;
+  }
+  NSDictionary *meta = [metaId isKindOfClass:[NSDictionary class]] ? metaId : nil;
+
+  NSString *mdTitle = AUBKMetadataString(meta, @"title");
+  NSString *mdAuthor = AUBKMetadataString(meta, @"author");
+  NSString *mdCoverUrl = AUBKMetadataString(meta, @"coverUrl");
+
+  NSMutableString *metaFlags = [NSMutableString string];
+  [metaFlags appendFormat:@" -metadata genre=%@", ShellQuotePath(@"Audiobook")];
+  if (mdTitle.length > 0) {
+    [metaFlags appendFormat:@" -metadata title=%@", ShellQuotePath(mdTitle)];
+    [metaFlags appendFormat:@" -metadata album=%@", ShellQuotePath(mdTitle)];
+  }
+  if (mdAuthor.length > 0) {
+    [metaFlags appendFormat:@" -metadata artist=%@", ShellQuotePath(mdAuthor)];
+    [metaFlags appendFormat:@" -metadata album_artist=%@", ShellQuotePath(mdAuthor)];
+  }
+
+  NSString *_Nullable coverPath = nil;
+  if (mdCoverUrl.length > 0) {
+    NSError *dlErr = nil;
+    coverPath = AUBKDownloadCoverToTempFile(mdCoverUrl, &dlErr);
+    (void)dlErr;
+  }
+  BOOL useCover = (coverPath != nil && [fm isReadableFileAtPath:coverPath]);
 
   int status = -1;
   NSString *stderrTxt = nil;
-  NSString *stdoutStr = RunShellSeparatingStdout(cmd, &stderrTxt, &status);
-  (void)stdoutStr;
+
+  if (useCover) {
+    NSString *cmdCover = [NSString
+        stringWithFormat:
+            @"%@ -y -hide_banner -loglevel error -i %@ -i %@ -map 0:a -map 1:v -c copy -disposition:v:0 "
+            @"attached_pic%@ %@",
+            ShellQuotePath(ffmpeg),
+            ShellQuotePath(stdMerged),
+            ShellQuotePath(coverPath),
+            metaFlags,
+            ShellQuotePath(destM4b)];
+    (void)RunShellSeparatingStdout(cmdCover, &stderrTxt, &status);
+  }
+
+  if (status != 0) {
+    NSString *cmdPlain = [NSString stringWithFormat:
+                                     @"%@ -y -hide_banner -loglevel error -i %@ -c copy%@ %@",
+                                     ShellQuotePath(ffmpeg),
+                                     ShellQuotePath(stdMerged),
+                                     metaFlags,
+                                     ShellQuotePath(destM4b)];
+    NSString *stderr2 = nil;
+    (void)RunShellSeparatingStdout(cmdPlain, &stderr2, &status);
+    stderrTxt = stderr2;
+  }
+
+  if (coverPath.length > 0) {
+    [fm removeItemAtPath:coverPath error:nil];
+  }
 
   if (status != 0) {
     NSString *detail = stderrTxt.length > 0 ? stderrTxt : @"(ffmpeg)";
     if (detail.length > 2000) {
       detail = [[detail substringToIndex:2000] stringByAppendingString:@"…"];
     }
-    reject(@"m4b_failed", [NSString stringWithFormat:@"M4B-Erzeugung fehlgeschlagen:\n%@", detail], nil);
+    reject(@"m4b_failed", [NSString stringWithFormat:@"M4B creation failed:\n%@", detail], nil);
     return;
   }
 
   if (![fm isReadableFileAtPath:destM4b]) {
-    reject(@"io", @"M4B wurde nicht erzeugt.", nil);
+    reject(@"io", @"M4B was not created.", nil);
     return;
   }
 
   NSError *delErr = nil;
   if (![fm removeItemAtPath:stdMerged error:&delErr]) {
     reject(@"io",
-           [NSString stringWithFormat:@"M4B ist erzeugt, die Quell-M4A konnte nicht gelöscht werden: %@",
+           [NSString stringWithFormat:@"M4B was created but the source M4A could not be deleted: %@",
                                       delErr.localizedDescription],
            delErr);
     return;
@@ -979,7 +1100,7 @@ RCT_REMAP_METHOD(countMp3FilesInDirectory,
                  rejecter:(RCTPromiseRejectBlock)reject)
 {
   if (dirPath.length == 0) {
-    reject(@"empty", @"Kein Verzeichnis angegeben.", nil);
+    reject(@"empty", @"No directory specified.", nil);
     return;
   }
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -997,7 +1118,7 @@ RCT_REMAP_METHOD(detectChaptersWithWhisper,
 {
   if (rootDirectory.length == 0 || modelSize.length == 0 || device.length == 0 ||
       computeType.length == 0) {
-    reject(@"empty", @"rootDirectory, modelSize, device und computeType sind erforderlich.", nil);
+    reject(@"empty", @"rootDirectory, modelSize, device, and computeType are required.", nil);
     return;
   }
   RCTCallableJSModules *progressJS = self.callableJSModules;
@@ -1014,7 +1135,7 @@ RCT_REMAP_METHOD(createMergedAudiobookWithChapters,
                  rejecter:(RCTPromiseRejectBlock)reject)
 {
   if (rootDirectory.length == 0) {
-    reject(@"empty", @"rootDirectory ist erforderlich.", nil);
+    reject(@"empty", @"rootDirectory is required.", nil);
     return;
   }
   RCTCallableJSModules *progressJS = self.callableJSModules;
@@ -1026,15 +1147,16 @@ RCT_REMAP_METHOD(createMergedAudiobookWithChapters,
 RCT_REMAP_METHOD(createM4bAudiobook,
                  createM4bAudiobook:(NSString *)mergedM4aPath
                  mp3RootDirectory:(NSString *)mp3RootDirectory
+                 metadata:(NSDictionary *_Nullable)metadata
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject)
 {
   if (mergedM4aPath.length == 0 || mp3RootDirectory.length == 0) {
-    reject(@"empty", @"mergedM4aPath und mp3RootDirectory sind erforderlich.", nil);
+    reject(@"empty", @"mergedM4aPath and mp3RootDirectory are required.", nil);
     return;
   }
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-    FinalizeM4bAudiobookResolved(mergedM4aPath, mp3RootDirectory, resolve, reject);
+    FinalizeM4bAudiobookResolved(mergedM4aPath, mp3RootDirectory, metadata, resolve, reject);
   });
 }
 
@@ -1065,7 +1187,7 @@ RCT_REMAP_METHOD(selectDirectory,
       resolve([NSNull null]);
       return;
     }
-    reject(@"open_panel_failed", @"Verzeichnisauswahl fehlgeschlagen.", nil);
+    reject(@"open_panel_failed", @"Folder selection failed.", nil);
   });
 }
 

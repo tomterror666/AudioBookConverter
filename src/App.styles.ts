@@ -1,10 +1,17 @@
 import { StyleSheet } from "react-native";
 
-const TRACK_HEIGHT = 6;
-const THUMB_SIZE = 24;
 const CONTENT_ROW_PADDING = 24;
 const FORM_EDGE_MARGIN = 32;
-const SLIDER_HORIZONTAL_INSET = CONTENT_ROW_PADDING + FORM_EDGE_MARGIN;
+/** Space between form column content and the column edge before the status panel (px). */
+const FORM_COLUMN_END_INSET = 16;
+/**
+ * Fixed width for the step title column so the longest line (see CONVERSION_STEP_TITLES)
+ * fits on one row and the gap to the progress circle stays ~CONVERSION_STEP_LABEL_GAP.
+ * Wider values only add empty space between text and circles (avoid flex:1 on the label).
+ */
+const CONVERSION_STEP_LABEL_COLUMN_WIDTH = 348;
+/** Horizontal space between the end of the title column and the progress circle (px). */
+const CONVERSION_STEP_LABEL_GAP = 16;
 
 export const styles = StyleSheet.create({
   container: {
@@ -14,6 +21,7 @@ export const styles = StyleSheet.create({
   mainColumn: {
     flex: 1,
     flexDirection: "column",
+    position: "relative",
   },
   mainScroll: {
     flex: 1,
@@ -33,20 +41,12 @@ export const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     alignSelf: "flex-start",
-  },
-  statusAside: {
-    flexShrink: 0,
-    marginLeft: FORM_EDGE_MARGIN,
-    marginRight: FORM_EDGE_MARGIN,
-    minWidth: 0,
-    maxWidth: 920,
-    alignSelf: "flex-start",
-    alignItems: "flex-start",
+    paddingRight: FORM_COLUMN_END_INSET,
   },
   buttonContainer: {
     marginLeft: FORM_EDGE_MARGIN,
     marginTop: 0,
-    alignSelf: "flex-start",
+    alignSelf: "stretch",
   },
   verzeichnisRow: {
     flexDirection: "row",
@@ -81,14 +81,19 @@ export const styles = StyleSheet.create({
     flex: 1,
     maxWidth: 600,
   },
-  pathInput: {
+  /** Border on outer View — RN macOS often skips borders on Pressable / inner layouts. */
+  pathInputOutline: {
     borderWidth: 1,
+    borderStyle: "solid",
     borderColor: "#CCCCCC",
     borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    minWidth: 300,
+  },
+  pathInputPressable: {
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: "#FFFFFF",
-    minWidth: 300,
   },
   pathInputText: {
     fontSize: 14,
@@ -100,54 +105,22 @@ export const styles = StyleSheet.create({
   startButtonWrapper: {
     marginTop: 64,
   },
-  sliderContainer: {
-    alignSelf: "stretch",
-    marginHorizontal: SLIDER_HORIZONTAL_INSET,
-    marginBottom: 32,
+  conversionStepsList: {
+    marginTop: 48,
+    gap: 8,
+    alignSelf: "flex-start",
   },
-  progressStepLabel: {
-    alignSelf: "stretch",
-    marginBottom: 10,
-    fontSize: 20,
-    fontWeight: "500",
-    color: "#333333",
-    textAlign: "left",
+  conversionStepListRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
   },
-  progressStepMp3: {
-    fontSize: 20,
-    fontWeight: "400",
-    color: "#666666",
+  conversionStepListLabelWrap: {
+    width: CONVERSION_STEP_LABEL_COLUMN_WIDTH,
+    flexShrink: 0,
+    paddingRight: CONVERSION_STEP_LABEL_GAP,
   },
-  sliderTrack: {
-    height: THUMB_SIZE,
-    justifyContent: "center",
-    alignSelf: "stretch",
-    width: "100%",
-    minWidth: 200,
-  },
-  sliderTrackBg: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: (THUMB_SIZE - TRACK_HEIGHT) / 2,
-    height: TRACK_HEIGHT,
-    backgroundColor: "#E0E0E0",
-    borderRadius: TRACK_HEIGHT / 2,
-  },
-  sliderFill: {
-    position: "absolute",
-    left: 0,
-    top: (THUMB_SIZE - TRACK_HEIGHT) / 2,
-    height: TRACK_HEIGHT,
-    backgroundColor: "#34C759",
-    borderRadius: TRACK_HEIGHT / 2,
-  },
-  sliderThumb: {
-    position: "absolute",
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
-    borderRadius: THUMB_SIZE / 2,
-    backgroundColor: "#333333",
-    top: 0,
+  conversionStepListProgress: {
+    flexShrink: 0,
   },
 });

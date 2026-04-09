@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Sortierte MP3s unter --root-dir per ffmpeg zu einer M4A zusammenführen;
-Kapitel (marks: filePath, startSec, label) auf die Gesamt-Timeline legen.
+Merge sorted MP3s under --root-dir into one M4A with ffmpeg;
+place chapter marks (filePath, startSec, label) on the full timeline.
 """
 import argparse
 import bisect
@@ -23,12 +23,12 @@ except Exception:
 
 
 def emit_merge_progress(cur: int, tot: int) -> None:
-    """ stderr: [cur/tot] für nativen UI-Fortschritt (merge, kind=merge). """
+    """stderr: [cur/tot] for native UI progress (merge, kind=merge)."""
     print(f"[{cur}/{tot}]", file=sys.stderr, flush=True)
 
 
 def _out_time_npt_to_seconds(val: str) -> float | None:
-    """HH:MM:SS.micro aus ffmpeg progress-Zeile out_time=…"""
+    """HH:MM:SS.micro from ffmpeg progress line out_time=…"""
     val = val.strip()
     if not val:
         return None
@@ -46,19 +46,19 @@ def _out_time_npt_to_seconds(val: str) -> float | None:
 
 
 def _latest_out_time_sec_from_progress_dump(content: str) -> float | None:
-    """Liest die zuletzt genannte Ausgabezeit aus ffmpeg -progress (key=value)."""
+    """Read the latest output time from ffmpeg -progress (key=value)."""
     sec: float | None = None
     for line in content.splitlines():
         line = line.strip()
         if line.startswith("out_time_us="):
             sec = int(line.split("=", 1)[1].strip()) / 1_000_000.0
         elif line.startswith("out_time_ms="):
-            # Im offiziellen ffmpeg -progress-Format sind out_time_ms und out_time_us
-            # beides Mikrosekunden (irreführender Name). NICHT durch 1000 teilen.
+            # In official ffmpeg -progress, out_time_ms and out_time_us are both microseconds
+            # (misleading name). Do NOT divide by 1000.
             v = int(line.split("=", 1)[1].strip())
             sec = v / 1_000_000.0
         elif line.startswith("out_time="):
-            # Häufig bei Audio/älteren Builds statt out_time_us (sonst kein Fortschritt → UI bleibt bei „nach Probing“ stehen).
+            # Common on audio/older builds instead of out_time_us (otherwise no progress).
             parsed = _out_time_npt_to_seconds(line.split("=", 1)[1])
             if parsed is not None:
                 sec = parsed
@@ -66,7 +66,7 @@ def _latest_out_time_sec_from_progress_dump(content: str) -> float | None:
 
 
 def _stdout_progress_reader(stdout, q: queue.Queue) -> None:
-    """Liest ffmpeg -progress key=value-Blöcke von stdout (pipe:1)."""
+    """Read ffmpeg -progress key=value blocks from stdout (pipe:1)."""
     buf: list[str] = []
     try:
         for line in stdout:
@@ -96,10 +96,9 @@ def run_ffmpeg_with_progress(
     chapter_is_mp3_fallback: bool = False,
 ) -> None:
     """
-    ffmpeg mit -nostats -progress pipe:1 — Fortschritt als Stream auf stdout (zuverlässiger
-    als Polling einer truncatierten Datei, wo oft leere/unvollständige Reads den Balken
-    einfrieren).
-    prog_file wird nicht mehr verwendet (API bleibt aus Aufrufer-Kompatibilität).
+    ffmpeg with -nostats -progress pipe:1 — progress as a stream on stdout (more reliable than
+    polling a truncated file where empty reads can stall the bar).
+    prog_file is unused (kept for caller API compatibility).
     """
     _ = prog_file
     ffmpeg_bin = argv[0]
@@ -134,10 +133,10 @@ def run_ffmpeg_with_progress(
     denom = max(float(duration_sec), 0.001)
     end_cur = cur_start + cur_width
     last_emitted = cur_start - 1
-    # Ausgabezeit laut ffmpeg (kann bei Concat/AAC sehr lange ausbleiben oder nur Sprünge liefern).
+    # Output time from ffmpeg (concat/AAC may stall or jump).
     last_real_sec = 0.0
     t_wall0 = time.monotonic()
-    # Worst-case-Wandzeit bis synthetisch ~92 % der Audiospur „erreicht“ sind (wird von echtem out_time übertroffen).
+    # Worst-case wall time until we synthesize ~92% of audio “reached” (real out_time overrides).
     budget_wall = max(90.0, min(10_800.0, float(denom) / 18.0))
     mode_py = "mp3" if chapter_is_mp3_fallback else "marks"
     last_ch_idx = [0]
@@ -269,25 +268,25 @@ def main():
 
     root = Path(args.root_dir).expanduser().resolve()
     if not root.is_dir():
-        print(f"Kein Verzeichnis: {root}", file=sys.stderr)
+        print(f"Not a directory: {root}", file=sys.stderr)
         sys.exit(1)
 
     with open(args.marks_json, encoding="utf-8") as f:
         payload = json.load(f)
     marks = payload.get("marks") or []
     if not isinstance(marks, list):
-        print("marks muss eine Liste sein", file=sys.stderr)
+        print("marks must be a list", file=sys.stderr)
         sys.exit(1)
 
     mp3s = list(iter_mp3_files(root))
     if not mp3s:
-        print("Keine MP3-Dateien gefunden.", file=sys.stderr)
+        print("No MP3 files found.", file=sys.stderr)
         sys.exit(1)
 
     ffmpeg = args.ffmpeg
     nfiles = len(mp3s)
-    # Zeit: ffprobe pro Datei ~ms, ffmpeg-AAC-Concat ~Minuten. Lineare Schritte n+2 würden
-    # den Balken mit n/(n+2)≈99% füllen, bevor der lange Encode startet → irreführend.
+    # ffprobe is ~ms per file; AAC concat is minutes. Linear n+2 steps would fill the bar
+    # to ~99% before the long encode — misleading.
     w_concat = max(400, nfiles * 15)
     w_mux = 50
     n_total = nfiles + w_concat + w_mux
@@ -311,14 +310,14 @@ def main():
         key = str(Path(fp).resolve())
         idx = path_to_index.get(key)
         if idx is None:
-            print(f"Unbekannte Datei in marks: {fp}", file=sys.stderr)
+            print(f"Unknown file in marks: {fp}", file=sys.stderr)
             sys.exit(1)
         try:
             start_sec = float(m["startSec"])
         except (KeyError, TypeError, ValueError):
-            print(f"Ungültiges startSec in mark: {m}", file=sys.stderr)
+            print(f"Invalid startSec in mark: {m}", file=sys.stderr)
             sys.exit(1)
-        label = str(m.get("label") or f"Kapitel {m.get('number', '')}")
+        label = str(m.get("label") or f"Chapter {m.get('number', '')}")
         global_start_ms = int(round((offsets_sec[idx] + start_sec) * 1000))
         global_chapters.append((global_start_ms, label))
 
@@ -340,7 +339,7 @@ def main():
         clist = td_p / "concat.txt"
         write_concat_list(mp3s, clist)
         pre_meta = td_p / "pre.m4a"
-        # 48k reicht für Sprache, weniger Daten → schnelleres AAC-Encoding als z. B. 192k
+        # 48k is enough for speech; less data → faster AAC than e.g. 192k
         cmd_concat = [
             ffmpeg,
             "-y",
@@ -425,7 +424,7 @@ def main():
                 chapter_is_mp3_fallback=chapter_is_mp3_fallback,
             )
         except subprocess.CalledProcessError as exc:
-            print(exc.stderr or "ffmpeg Kapitel", file=sys.stderr)
+            print(exc.stderr or "ffmpeg chapters", file=sys.stderr)
             sys.exit(1)
 
     print(json.dumps({"outputPath": str(out_path)}))

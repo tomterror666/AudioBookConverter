@@ -1,32 +1,37 @@
 import { StyleSheet } from "react-native";
 
 export const styles = StyleSheet.create({
-  panel: {
+  /** Outer shell holds the border (reliable on RN macOS). */
+  panelOutline: {
     margin: 0,
-    padding: 16,
     borderWidth: 1,
+    borderStyle: "solid",
     borderColor: "#CCCCCC",
     borderRadius: 12,
     backgroundColor: "#FAFAFA",
-    minWidth: 540,
-    maxWidth: 920,
-    alignSelf: "flex-start",
+    minWidth: 488,
+    alignSelf: "stretch",
+    overflow: "hidden",
+  },
+  panelInner: {
+    padding: 16,
   },
   panelTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "600",
     color: "#000000",
-    marginBottom: 16,
+    marginBottom: 10,
   },
   labelColumn: {
     flexShrink: 0,
-    width: 204,
-    paddingRight: 11,
+    width: 232,
+    paddingRight: 28,
   },
-  venvValueColumn: {
-    marginLeft: 16,
+  venvPathColumn: {
     flex: 1,
-    minWidth: 260,
+    minWidth: 0,
+    alignSelf: "stretch",
+    justifyContent: "center",
   },
   tableRow: {
     flexDirection: "row",
@@ -34,39 +39,26 @@ export const styles = StyleSheet.create({
     marginBottom: 12,
   },
   venvTableRow: {
-    alignItems: "flex-start",
-  },
-  venvPathFill: {
-    flex: 1,
-    minWidth: 260,
-    justifyContent: "center",
+    alignItems: "center",
   },
   rowLast: {
     marginBottom: 0,
   },
   ledColumn: {
-    width: 36,
-    flexShrink: 0,
-    marginLeft: 16,
+    flex: 1,
+    minWidth: 0,
     alignItems: "center",
     justifyContent: "center",
   },
-  pathText: {
-    alignSelf: "stretch",
-    fontSize: 14,
-    fontWeight: "400",
-    color: "#000000",
-  },
   actionColumn: {
-    width: 78,
+    width: 80,
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
   },
-  rowTrailSpacer: {
-    flex: 1,
-    minWidth: 0,
+  afterTitleGap: {
+    marginTop: 10,
   },
   led: {
     width: 14,

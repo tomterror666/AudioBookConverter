@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Transkribiert pro MP3 nur die ersten --head-seconds (Standard 45) mit ffmpeg + faster-whisper,
-sucht „Kapitel“ + Zahl (Wort-Timestamps). Zeiten beziehen sich auf den vollen Track (Offset 0).
-JSON nach stdout, Fortschritt nach stderr.
+For each MP3, transcribe only the first --head-seconds (default 45) with ffmpeg + faster-whisper,
+find German “Kapitel” + number (word timestamps). Times refer to the full track (offset 0).
+JSON to stdout, progress to stderr.
 """
 import argparse
 from datetime import datetime, timezone
@@ -39,20 +39,20 @@ def write_chapter_log(
 ) -> None:
     log_path = root / CHAPTER_LOG_FILENAME
     lines = [
-        "AudioBookConverter — erkannte Kapitel (Whisper)",
-        f"Projektordner: {root}",
+        "AudioBookConverter — detected chapters (Whisper)",
+        f"Project folder: {root}",
         (
-            "Erzeugt (UTC): "
+            "Generated (UTC): "
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
         ),
-        f"Modell: {model_size}, Gerät: {device}, Scan: erste {head_seconds:.0f} s pro MP3",
+        f"Model: {model_size}, device: {device}, scan: first {head_seconds:.0f} s per MP3",
         "",
-        f"Anzahl gefundener Kapitel-Marker: {len(all_marks)}",
+        f"Chapter markers found: {len(all_marks)}",
         "",
     ]
 
     if not all_marks:
-        lines.extend(["(keine Kapitel im Scan gefunden)", ""])
+        lines.extend(["(no chapters found in scan)", ""])
     else:
         by_file: dict[str, list] = {}
         for m in all_marks:
@@ -72,7 +72,7 @@ def write_chapter_log(
                 lines.append(f"  {label} @ {sec:.3f} s  ({tc})")
             lines.append("")
 
-        lines.append("— Tabelle (Datei | Kapitel | Sekunden | Zeitcode) —")
+        lines.append("— Table (file | chapter | seconds | timecode) —")
         for m in sorted(
             all_marks,
             key=lambda x: (x.get("filePath", ""), float(x["startSec"])),
@@ -90,7 +90,7 @@ def write_chapter_log(
         lines.append("")
 
     log_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Kapitel-Log: {log_path}", file=sys.stderr, flush=True)
+    print(f"Chapter log: {log_path}", file=sys.stderr, flush=True)
 
 
 def iter_mp3_files(root: Path):
@@ -125,8 +125,8 @@ def words_from_segments(segments):
 
 def dedupe_consecutive_same_chapter(marks: list) -> list:
     """
-    Sortiert nach Datei + Zeit; unmittelbar aufeinanderfolgende Einträge mit gleicher Datei
-    und gleicher Kapitel-Nummer zu einem zusammenführen (erste Position behalten).
+    Sort by file + time; merge consecutive entries with the same file and chapter number
+    (keep the first position).
     """
     if len(marks) < 2:
         return marks
@@ -159,7 +159,7 @@ def find_kapitel_marks_for_file(words, file_path_resolved: str):
                 "filePath": file_path_resolved,
                 "startSec": float(words[i].start),
                 "number": num,
-                "label": f"Kapitel {num}",
+                "label": f"Chapter {num}",
             }
         )
     return marks
@@ -192,7 +192,7 @@ def extract_head_wav(ffmpeg_bin: str, src: Path, duration_sec: float) -> Path:
 
 
 def transcribe_file(model, wav_path: Path, language: str):
-    # Kurzer Clip: kein VAD, damit „Kapitel“ am Anfang nicht abgeschnitten wird
+    # Short clip: no VAD so “Kapitel” at the start is not trimmed away
     segments, _info = model.transcribe(
         str(wav_path),
         language=language,
@@ -213,18 +213,18 @@ def main():
     parser.add_argument("--device", required=True)
     parser.add_argument("--compute-type", required=True)
     parser.add_argument("--language", default="de")
-    parser.add_argument("--ffmpeg", required=True, help="Pfad zu ffmpeg")
+    parser.add_argument("--ffmpeg", required=True, help="Path to ffmpeg")
     parser.add_argument(
         "--head-seconds",
         type=float,
         default=HEAD_SECONDS_DEFAULT,
-        help=f"Nur die ersten N Sekunden transkribieren (Standard: {HEAD_SECONDS_DEFAULT})",
+        help=f"Transcribe only the first N seconds (default: {HEAD_SECONDS_DEFAULT})",
     )
     args = parser.parse_args()
 
     root = Path(args.root_dir).expanduser().resolve()
     if not root.is_dir():
-        print(f"Kein Verzeichnis: {root}", file=sys.stderr)
+        print(f"Not a directory: {root}", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -272,7 +272,7 @@ def main():
         if words:
             path_resolved = str(mp3.resolve())
             all_marks.extend(find_kapitel_marks_for_file(words, path_resolved))
-        # Eine Zeile pro fertiger Datei für den UI-Fortschritt ([fertig/total]).
+        # One line per finished file for UI progress ([done/total]).
         print(f"[{idx}/{nfiles}]", file=sys.stderr, flush=True)
 
     all_marks = dedupe_consecutive_same_chapter(all_marks)
@@ -286,7 +286,7 @@ def main():
             head_seconds=head_sec,
         )
     except OSError as exc:
-        print(f"Kapitel-Log konnte nicht geschrieben werden: {exc}", file=sys.stderr)
+        print(f"Could not write chapter log: {exc}", file=sys.stderr)
         sys.exit(1)
 
     json.dump({"marks": all_marks}, sys.stdout, ensure_ascii=False)

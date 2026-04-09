@@ -110,6 +110,6 @@ describe("dependencyStatus utils", () => {
     setPlatform("ios");
     await expect(
       runSingleDependencyAction("python", "install"),
-    ).rejects.toThrow("Nur auf macOS verfügbar.");
+    ).rejects.toThrow("Only available on macOS.");
   });
 });

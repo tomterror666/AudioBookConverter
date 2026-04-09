@@ -28,8 +28,8 @@ export function allDependencyLedsGreen(
 export type DependencyCheckResult = {
   statuses: DependencyStatuses;
   /**
-   * Nur für die Python-Info-Zeile: venv-Pfad mit führendem Teil als PROJECT_ROOT.
-   * Volle Pfade bleiben ausschließlich im nativen Modul / Logs.
+   * Python info row only: venv path with leading part shown as PROJECT_ROOT.
+   * Full paths stay in the native module / logs only.
    */
   venvPathDisplay: string | null;
 };
@@ -37,8 +37,8 @@ export type DependencyCheckResult = {
 const VENV_LEAF = "/.audioBookConverter";
 
 /**
- * Nur für die Python-Info-Anzeige. Nicht von `projectRoot` aus der Bridge abhängig
- * (fällt sonst oft auf den vollen Pfad zurück) — feste venv: …/.audioBookConverter.
+ * Python info display only. Independent of Bridge `projectRoot` (avoids showing full paths);
+ * fixed venv: …/.audioBookConverter.
  */
 function venvPathForPythonInfoDisplay(venvRoot: string | null): string {
   if (!venvRoot) {
@@ -69,7 +69,7 @@ function normalizeStatus(v: unknown): DependencyLedStatus {
   return "missing";
 }
 
-/** Python-venv liegt unter <Projektroot>/.audioBookConverter (macOS nativ, vgl. Xcode SRCROOT). */
+/** Python venv lives at <project root>/.audioBookConverter (macOS native; see Xcode SRCROOT). */
 export async function runDependencyChecks(): Promise<DependencyCheckResult> {
   if (Platform.OS !== "macos") {
     return { statuses: DEFAULT_MISSING, venvPathDisplay: null };
@@ -110,13 +110,13 @@ export async function runDependencyChecks(): Promise<DependencyCheckResult> {
   }
 }
 
-/** Eine Abhängigkeit gezielt installieren (install) oder aktualisieren (update). */
+/** Install or update a single dependency. */
 export async function runSingleDependencyAction(
   key: DependencyKey,
   mode: "install" | "update",
 ): Promise<string> {
   if (Platform.OS !== "macos") {
-    throw new Error("Nur auf macOS verfügbar.");
+    throw new Error("Only available on macOS.");
   }
   const mod = NativeModules.DependencyStatus as
     | {
@@ -127,7 +127,7 @@ export async function runSingleDependencyAction(
       }
     | undefined;
   if (!mod?.runSingleDependencyAction) {
-    throw new Error("Aktion nicht verfügbar.");
+    throw new Error("Action not available.");
   }
   const r = await mod.runSingleDependencyAction(key, mode);
   return typeof r?.log === "string" ? r.log : "";

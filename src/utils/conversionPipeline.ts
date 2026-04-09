@@ -2,7 +2,7 @@ import { NativeModules, Platform } from "react-native";
 
 export class ConversionCancelledError extends Error {
   constructor() {
-    super("Konvertierung abgebrochen");
+    super("Conversion cancelled");
     this.name = "ConversionCancelledError";
   }
 }
@@ -13,14 +13,14 @@ export function isConversionCancelled(e: unknown): boolean {
 
 async function nativeCountMp3Files(directoryPath: string): Promise<number> {
   if (Platform.OS !== "macos") {
-    throw new Error("MP3-Zählung ist derzeit nur unter macOS verfügbar.");
+    throw new Error("MP3 counting is only available on macOS.");
   }
   const mod = NativeModules.DependencyStatus as
     | { countMp3FilesInDirectory?: (p: string) => Promise<number> }
     | undefined;
   const fn = mod?.countMp3FilesInDirectory;
   if (typeof fn !== "function") {
-    throw new Error("countMp3FilesInDirectory (nativ) ist nicht verfügbar.");
+    throw new Error("countMp3FilesInDirectory (native) is not available.");
   }
   const n = await fn(directoryPath);
   return typeof n === "number" ? n : Number(n);
@@ -49,27 +49,27 @@ function asNumber(v: unknown, field: string): number {
       return n;
     }
   }
-  throw new Error(`Ungültiger Zahlenwert in „${field}“.`);
+  throw new Error(`Invalid numeric value in "${field}".`);
 }
 
 function parseChapterDetectionResult(raw: unknown): ChapterDetectionResult {
   if (!raw || typeof raw !== "object") {
-    throw new Error("Ungültige Kapitel-Antwort.");
+    throw new Error("Invalid chapter response.");
   }
   const marksRaw = (raw as { marks?: unknown }).marks;
   if (!Array.isArray(marksRaw)) {
-    throw new Error("Ungültige Kapitel-Antwort (marks).");
+    throw new Error("Invalid chapter response (marks).");
   }
   const marks: ChapterMark[] = marksRaw.map((item, index) => {
     if (!item || typeof item !== "object") {
-      throw new Error(`Ungültiges Kapitel-Element (Index ${index}).`);
+      throw new Error(`Invalid chapter item (index ${index}).`);
     }
     const o = item as Record<string, unknown>;
     const filePath = o.filePath;
     const label = o.label;
     if (typeof filePath !== "string" || typeof label !== "string") {
       throw new Error(
-        `Ungültiges Kapitel-Element (Index ${index}, Pfade/Label).`,
+        `Invalid chapter item (index ${index}, paths/label).`,
       );
     }
     return {
@@ -90,7 +90,7 @@ async function nativeDetectChaptersWithWhisper(
 ): Promise<ChapterDetectionResult> {
   if (Platform.OS !== "macos") {
     throw new Error(
-      "Whisper-Kapitelerkennung ist derzeit nur unter macOS implementiert.",
+      "Whisper chapter detection is only implemented on macOS.",
     );
   }
   const mod = NativeModules.DependencyStatus as
@@ -105,7 +105,7 @@ async function nativeDetectChaptersWithWhisper(
     | undefined;
   const fn = mod?.detectChaptersWithWhisper;
   if (typeof fn !== "function") {
-    throw new Error("detectChaptersWithWhisper (nativ) ist nicht verfügbar.");
+    throw new Error("detectChaptersWithWhisper (native) is not available.");
   }
   const raw = await fn(rootDirectory, modelSize, device, computeType);
   return parseChapterDetectionResult(raw);
@@ -117,7 +117,7 @@ async function nativeCreateMergedAudiobookWithChapters(
 ): Promise<string> {
   if (Platform.OS !== "macos") {
     throw new Error(
-      "Zusammenführung mit Kapiteln ist derzeit nur unter macOS implementiert.",
+      "Merge with chapters is only implemented on macOS.",
     );
   }
   const mod = NativeModules.DependencyStatus as
@@ -131,42 +131,54 @@ async function nativeCreateMergedAudiobookWithChapters(
   const fn = mod?.createMergedAudiobookWithChapters;
   if (typeof fn !== "function") {
     throw new Error(
-      "createMergedAudiobookWithChapters (nativ) ist nicht verfügbar.",
+      "createMergedAudiobookWithChapters (native) is not available.",
     );
   }
   const out = await fn(rootDirectory, marks);
   if (typeof out !== "string" || !out.trim()) {
-    throw new Error("Ungültiger Ausgabepfad von der nativen Zusammenführung.");
+    throw new Error("Invalid output path from native merge.");
   }
   return out;
 }
+
+/** Optional metadata from Google Books preview for M4B creation (ffmpeg). */
+export type AudiobookM4bMetadata = {
+  title?: string;
+  author?: string;
+  coverUrl?: string;
+};
 
 async function nativeCreateM4bAudiobook(
   mergedM4aPath: string,
   mp3RootDirectory: string,
+  metadata?: AudiobookM4bMetadata | null,
 ): Promise<string> {
   if (Platform.OS !== "macos") {
     throw new Error(
-      "M4B-Erstellung ist derzeit nur unter macOS implementiert.",
+      "M4B creation is only implemented on macOS.",
     );
   }
   const mod = NativeModules.DependencyStatus as
     | {
-        createM4bAudiobook?: (merged: string, root: string) => Promise<string>;
+        createM4bAudiobook?: (
+          merged: string,
+          root: string,
+          metadata?: AudiobookM4bMetadata | null,
+        ) => Promise<string>;
       }
     | undefined;
   const fn = mod?.createM4bAudiobook;
   if (typeof fn !== "function") {
-    throw new Error("createM4bAudiobook (nativ) ist nicht verfügbar.");
+    throw new Error("createM4bAudiobook (native) is not available.");
   }
-  const out = await fn(mergedM4aPath, mp3RootDirectory);
+  const out = await fn(mergedM4aPath, mp3RootDirectory, metadata ?? null);
   if (typeof out !== "string" || !out.trim()) {
-    throw new Error("Ungültiger Ausgabepfad für die M4B-Datei.");
+    throw new Error("Invalid output path for the M4B file.");
   }
   return out;
 }
 
-/** 1. MP3-Dateien im Projektordner rekursiv zählen. */
+/** 1. Recursively count MP3 files in the project folder. */
 export async function countMp3Files(rootDirectory: string): Promise<number> {
   return nativeCountMp3Files(rootDirectory);
 }
@@ -178,8 +190,8 @@ export type LocateChaptersOptions = {
 };
 
 /**
- * 2. Pro MP3 nur die ersten ~45 s transkribieren (ffmpeg + faster-whisper),
- * Positionen von „Kapitel“ + Zahl (Wort-Timestamps, bezogen auf Track-Anfang); Ergebnis für Schritt 3.
+ * 2. Transcribe only the first ~45 s per MP3 (ffmpeg + faster-whisper);
+ * positions of “chapter” + number (word timestamps from track start); used in step 3.
  */
 export async function locateChapters(
   options: LocateChaptersOptions,
@@ -196,9 +208,8 @@ export async function locateChapters(
 }
 
 /**
- * 3. Alle MP3s (gleiche Sortierung wie Scan) zu einer M4A zusammenführen,
- * Kapitel aus Schritt 2 auf die Gesamt-Timeline legen (ffmpeg).
- * @returns Pfad zur erzeugten Datei (…/AudiobookConverter_merged.m4a).
+ * 3. Merge all MP3s (same order as scan) into one M4A and lay step‑2 chapters on the full timeline (ffmpeg).
+ * @returns Path to the output file (…/AudiobookConverter_merged.m4a).
  */
 export async function createMp4WithChapterMarkers(
   rootDirectory: string,
@@ -211,15 +222,17 @@ export async function createMp4WithChapterMarkers(
 }
 
 /**
- * 4. Aus der zusammengeführten M4A eine Hörbuch-.m4b im MP3-Projektordner erzeugen
- * (ffmpeg remux, genre Audiobook), die Zwischen-M4A wird entfernt.
+ * 4. From the merged M4A, build an audiobook .m4b in the MP3 project folder
+ * (ffmpeg remux, Audiobook genre, optional title/author/cover from metadata); the intermediate M4A is removed.
  */
 export async function createAudiobookFile(
   mergedM4aPath: string,
   mp3RootDirectory: string,
+  metadata?: AudiobookM4bMetadata | null,
 ): Promise<string> {
   return nativeCreateM4bAudiobook(
     mergedM4aPath.trim(),
     mp3RootDirectory.trim(),
+    metadata,
   );
 }

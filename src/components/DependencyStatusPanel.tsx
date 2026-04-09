@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Platform, View } from "react-native";
-import { Size } from "../constants";
-import { Box } from "./ui/Box";
 import { Button, ButtonSize, ButtonVariant } from "./ui/Button";
 import { Label, LabelVariant } from "./ui/Label";
 import { Modal } from "./ui/Modal";
@@ -61,12 +59,12 @@ export function DependencyStatusPanel(
       const log = await runSingleDependencyAction(key, mode);
       await refresh();
       const preview =
-        log.length > 1400 ? `${log.slice(0, 1400)}…` : log || "(fertig)";
+        log.length > 1400 ? `${log.slice(0, 1400)}…` : log || "(done)";
       setFeedbackHeadline(mode === "install" ? "Install" : "Update");
       setFeedbackContent(preview);
       setFeedbackVisible(true);
     } catch (e) {
-      setFeedbackHeadline("Fehler");
+      setFeedbackHeadline("Error");
       setFeedbackContent(e instanceof Error ? e.message : String(e));
       setFeedbackVisible(true);
     } finally {
@@ -77,27 +75,29 @@ export function DependencyStatusPanel(
   const isMacos = Platform.OS === "macos";
 
   return (
-    <View style={styles.panel}>
-      <Label title="Python Info" variant={LabelVariant.Header2} />
+    <View style={styles.panelOutline} collapsable={false}>
+      <View style={styles.panelInner}>
+        <Label title="Python Info" variant={LabelVariant.Header2} />
 
-      <Box margin={{ top: Size.size_16 }}>
+        <View style={styles.afterTitleGap}>
         <View style={[styles.tableRow, styles.venvTableRow]}>
           <View style={styles.labelColumn}>
-            <Label title="Python-Umgebung:" variant={LabelVariant.NormalBold} />
+            <Label title="Python environment:" variant={LabelVariant.NormalBold} />
           </View>
-          <View style={styles.venvValueColumn}>
-            <View style={styles.venvPathFill}>
-              <Label
-                title={
-                  isMacos
-                    ? venvPathDisplay ?? "PROJECT_ROOT/.audioBookConverter"
-                    : "(nur macOS)"
-                }
-                variant={LabelVariant.Normal}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              />
-            </View>
+          <View style={styles.venvPathColumn}>
+            <Label
+              title={
+                isMacos
+                  ? venvPathDisplay ?? "PROJECT_ROOT/.audioBookConverter"
+                  : "(macOS only)"
+              }
+              variant={LabelVariant.Normal}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            />
+          </View>
+          <View style={styles.actionColumn}>
+            <View style={styles.rowButtonPlaceholder} />
           </View>
         </View>
 
@@ -145,11 +145,11 @@ export function DependencyStatusPanel(
                   <View style={styles.rowButtonPlaceholder} />
                 )}
               </View>
-              <View style={styles.rowTrailSpacer} />
             </View>
           );
         })}
-      </Box>
+        </View>
+      </View>
       <Modal
         visible={feedbackVisible}
         headline={feedbackHeadline}

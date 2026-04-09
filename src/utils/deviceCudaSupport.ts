@@ -1,10 +1,9 @@
 import { Platform } from "react-native";
 
 /**
- * Ob „cuda“ als Gerät auf dieser Plattform unterstützt wird.
- * macOS: nein (kein NVIDIA-CUDA wie unter Windows).
- * Windows: grundsätzlich ja (effektiv nur mit NVIDIA-GPU; detaillierte
- * Treiber/GPU-Erkennung kann später nativ ergänzt werden).
+ * Whether "cuda" is offered as a device on this platform.
+ * macOS: false (no NVIDIA CUDA stack).
+ * Windows: true in principle (requires NVIDIA GPU in practice; native driver checks can be added later).
  */
 export function isCudaDeviceSupportedOnThisPlatform(): boolean {
   if (Platform.OS === "macos") {

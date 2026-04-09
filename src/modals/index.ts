@@ -4,3 +4,4 @@ export { SelectionModal } from "./SelectionModal";
 export { DetermineChapterPositionsModal } from "./DetermineChapterPositionsModal";
 export { EmbedChaptersInM4aModal } from "./EmbedChaptersInM4aModal";
 export { CreateAudiobookM4bModal } from "./CreateAudiobookM4bModal";
+export { PythonInfoModal } from "./PythonInfoModal";
