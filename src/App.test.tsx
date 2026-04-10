@@ -8,11 +8,11 @@ jest.mock("react-native-file-panel", () => ({
   openFolder: async () => "",
 }));
 
-jest.mock("../src/components/DependencyStatusPanel", () => ({
+jest.mock("./components/DependencyStatusPanel", () => ({
   DependencyStatusPanel: () => null,
 }));
 
-import App from "../src/App";
+import App from "./App";
 
 // Note: import explicitly to use the types shipped with jest.
 import { it, jest } from "@jest/globals";

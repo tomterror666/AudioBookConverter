@@ -1,0 +1,13 @@
+diff --git a/node_modules/react-native-macos/ReactCommon/react/runtime/platform/ios/ReactCommon/RCTInstance.mm b/node_modules/react-native-macos/ReactCommon/react/runtime/platform/ios/ReactCommon/RCTInstance.mm
+index b9be4b7..fad0d2f 100644
+--- a/node_modules/react-native-macos/ReactCommon/react/runtime/platform/ios/ReactCommon/RCTInstance.mm
++++ b/node_modules/react-native-macos/ReactCommon/react/runtime/platform/ios/ReactCommon/RCTInstance.mm
+@@ -524,7 +524,7 @@ - (void)_handleJSError:(const JsErrorHandler::ParsedError &)error withRuntime:(j
+                             name:errorData[@"name"]
+                   componentStack:errorData[@"componentStack"]
+                      exceptionId:error.id
+-                         isFatal:errorData[@"isFatal"]
++                         isFatal:error.isFatal
+                        extraData:errorData[@"extraData"]]) {
+     JS::NativeExceptionsManager::ExceptionData jsErrorData{errorData};
+     id<NativeExceptionsManagerSpec> exceptionsManager = [_turboModuleManager moduleForName:"ExceptionsManager"];

@@ -112,4 +112,49 @@ describe("dependencyStatus utils", () => {
       runSingleDependencyAction("python", "install"),
     ).rejects.toThrow("Only available on macOS.");
   });
+
+  it("runDependencyChecks uses venv_root when venvRoot is absent", async () => {
+    setPlatform("macos");
+    (NativeModules as Record<string, unknown>).DependencyStatus = {
+      checkAll: async () => ({
+        python: "ok",
+        pip: "ok",
+        ffmpeg: "ok",
+        fasterWhisper: "ok",
+        venv_root: "/custom/.audioBookConverter",
+      }),
+    };
+    const result = await runDependencyChecks();
+    expect(result.venvPathDisplay).toBe("PROJECT_ROOT/.audioBookConverter");
+  });
+
+  it("runDependencyChecks keeps non-project venv path for display", async () => {
+    setPlatform("macos");
+    (NativeModules as Record<string, unknown>).DependencyStatus = {
+      checkAll: async () => ({
+        python: "ok",
+        pip: "ok",
+        ffmpeg: "ok",
+        fasterWhisper: "ok",
+        venvRoot: "/opt/my-venvs/audio",
+      }),
+    };
+    const result = await runDependencyChecks();
+    expect(result.venvPathDisplay).toBe("/opt/my-venvs/audio");
+  });
+
+  it("runDependencyChecks when checkAll is missing uses defaults", async () => {
+    setPlatform("macos");
+    (NativeModules as Record<string, unknown>).DependencyStatus = {};
+    const result = await runDependencyChecks();
+    expect(result.venvPathDisplay).toBe("PROJECT_ROOT/.audioBookConverter");
+  });
+
+  it("runSingleDependencyAction throws when native action missing", async () => {
+    setPlatform("macos");
+    (NativeModules as Record<string, unknown>).DependencyStatus = {};
+    await expect(
+      runSingleDependencyAction("python", "install"),
+    ).rejects.toThrow("Action not available.");
+  });
 });

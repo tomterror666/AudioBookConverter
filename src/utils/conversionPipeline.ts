@@ -222,8 +222,9 @@ export async function createMp4WithChapterMarkers(
 }
 
 /**
- * 4. From the merged M4A, build an audiobook .m4b in the MP3 project folder
- * (ffmpeg remux, Audiobook genre, optional title/author/cover from metadata); the intermediate M4A is removed.
+ * 4. From the merged M4A, build an audiobook `.m4b` in the MP3 project folder
+ * named after that folder’s basename (sanitized; macOS native); ffmpeg remux, Audiobook genre,
+ * optional title/author/cover from metadata; the intermediate M4A is removed.
  */
 export async function createAudiobookFile(
   mergedM4aPath: string,

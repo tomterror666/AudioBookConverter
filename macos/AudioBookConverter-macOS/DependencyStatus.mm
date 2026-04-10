@@ -277,6 +277,31 @@ static NSString *ShellQuotePath(NSString *path)
   return [NSString stringWithFormat:@"'%@'", escaped];
 }
 
+/// `<stdRoot>/<sanitized last path component>.m4b` — mirrors the user's chosen folder name.
+static NSString *AUBKM4bOutputPathForProjectFolder(NSString *stdRoot)
+{
+  NSString *last = [stdRoot lastPathComponent];
+  NSMutableString *base =
+      [NSMutableString stringWithString:(last.length > 0 ? last : @"AudiobookConverter")];
+  NSCharacterSet *forbidden =
+      [NSCharacterSet characterSetWithCharactersInString:@"/:\0"];
+  for (NSInteger i = (NSInteger)base.length - 1; i >= 0; i--) {
+    unichar c = [base characterAtIndex:(NSUInteger)i];
+    if ([forbidden characterIsMember:c]) {
+      [base replaceCharactersInRange:NSMakeRange((NSUInteger)i, 1) withString:@"-"];
+    }
+  }
+  NSString *trimmed =
+      [base stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if (trimmed.length == 0 || [trimmed isEqualToString:@"."] || [trimmed isEqualToString:@".."]) {
+    trimmed = @"AudiobookConverter";
+  }
+  if (trimmed.length > 200) {
+    trimmed = [trimmed substringToIndex:200];
+  }
+  return [[stdRoot stringByAppendingPathComponent:trimmed] stringByAppendingPathExtension:@"m4b"];
+}
+
 #ifndef AUDIOBOOK_PROJECT_ROOT
 #error AUDIOBOOK_PROJECT_ROOT must be set (Xcode: GCC_PREPROCESSOR_DEFINITIONS, $(SRCROOT)/..)
 #endif
@@ -987,7 +1012,7 @@ static void FinalizeM4bAudiobookResolved(NSString *mergedM4aPath,
     return;
   }
 
-  NSString *destM4b = [stdRoot stringByAppendingPathComponent:@"AudiobookConverter.m4b"];
+  NSString *destM4b = AUBKM4bOutputPathForProjectFolder(stdRoot);
   if ([fm fileExistsAtPath:destM4b]) {
     NSError *rmErr = nil;
     if (![fm removeItemAtPath:destM4b error:&rmErr]) {

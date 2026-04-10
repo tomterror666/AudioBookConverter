@@ -21,12 +21,16 @@ describe("googleBooksCover", () => {
     expect(normalizeFolderBasename("/Users/me/My_Awesome__Book")).toBe(
       "My Awesome Book",
     );
+    expect(normalizeFolderBasename("")).toBe("");
+    expect(normalizeFolderBasename("   ")).toBe("");
   });
 
   it("perryRhodanSearchQueryFromPath prefixes Perry Rhodan and full name", () => {
     expect(perryRhodanSearchQueryFromPath("/b/Brand - Der Titan")).toBe(
       "Perry Rhodan Brand - Der Titan",
     );
+    expect(perryRhodanSearchQueryFromPath("")).toBe("");
+    expect(perryRhodanSearchQueryFromPath("///")).toBe("");
   });
 
   it("upgradeCoverUrlToHttps rewrites http thumbnails", () => {
@@ -89,6 +93,54 @@ describe("googleBooksCover", () => {
       await expect(fetchGoogleBooksFirstCover("x")).rejects.toThrow(
         "Google Books HTTP 429",
       );
+    });
+
+    it("returns null for empty query", async () => {
+      await expect(fetchGoogleBooksFirstCover(" ")).resolves.toBeNull();
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it("returns null when items array is empty", async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ items: [] }),
+      });
+      await expect(fetchGoogleBooksFirstCover("q")).resolves.toBeNull();
+    });
+
+    it("skips volumes without thumbnails until one has image", async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          items: [
+            { volumeInfo: { title: "A" } },
+            {
+              volumeInfo: {
+                title: "B",
+                authors: [],
+                imageLinks: { smallThumbnail: "https://x/y.png" },
+              },
+            },
+          ],
+        }),
+      });
+      const r = await fetchGoogleBooksFirstCover("q", { maxResults: 3 });
+      expect(r?.coverUrl).toBe("https://x/y.png");
+      expect(r?.title).toBe("B");
+      expect(r?.authors).toBeNull();
+    });
+
+    it("clamps maxResults to 1..40", async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ items: [] }),
+      });
+      await fetchGoogleBooksFirstCover("q", { maxResults: 99 });
+      const url = String((global.fetch as jest.Mock).mock.calls[0][0]);
+      expect(url).toContain("maxResults=40");
+      await fetchGoogleBooksFirstCover("q", { maxResults: 0 });
+      const url2 = String((global.fetch as jest.Mock).mock.calls[1][0]);
+      expect(url2).toContain("maxResults=1");
     });
   });
 });
