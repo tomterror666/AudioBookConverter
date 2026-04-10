@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { openFolder } from "react-native-file-panel";
 import { Box } from "./components/ui/Box";
+import { AudiobookScreenBackground } from "./components/AudiobookScreenBackground";
 import { SettingsGearOverlay } from "./components/SettingsGearOverlay";
 import { Progress, ProgressSize } from "./components/ui/Progress";
 import { Button, ButtonVariant } from "./components/ui/Button";
@@ -588,6 +589,7 @@ function App(): React.JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
+      <AudiobookScreenBackground />
       <View style={styles.mainColumn}>
         <Box padding={{ block: Size.size_32 }}>
           <Label
@@ -685,28 +687,30 @@ function App(): React.JSX.Element {
                     Start
                   </Button>
                 </View>
-                <View style={styles.conversionStepsList}>
-                  {([1, 2, 3, 4] as const).map(step => (
-                    <View key={step} style={styles.conversionStepListRow}>
-                      <View style={styles.conversionStepListLabelWrap}>
-                        <Label
-                          title={`${CONVERSION_STEP_TITLES[step]}:`}
-                          variant={LabelVariant.Normal}
-                          color={Color.gray700}
-                          align={LabelAlign.Left}
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                        />
+                <View style={styles.conversionStepsListPanel}>
+                  <View style={styles.conversionStepsList}>
+                    {([1, 2, 3, 4] as const).map(step => (
+                      <View key={step} style={styles.conversionStepListRow}>
+                        <View style={styles.conversionStepListLabelWrap}>
+                          <Label
+                            title={`${CONVERSION_STEP_TITLES[step]}:`}
+                            variant={LabelVariant.Normal}
+                            color={Color.gray700}
+                            align={LabelAlign.Left}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                          />
+                        </View>
+                        <View style={styles.conversionStepListProgress}>
+                          <Progress
+                            size={ProgressSize.Small}
+                            color={Color.primary}
+                            value={conversionStepListCircleValue(step)}
+                          />
+                        </View>
                       </View>
-                      <View style={styles.conversionStepListProgress}>
-                        <Progress
-                          size={ProgressSize.Small}
-                          color={Color.primary}
-                          value={conversionStepListCircleValue(step)}
-                        />
-                      </View>
-                    </View>
-                  ))}
+                    ))}
+                  </View>
                 </View>
               </View>
             </View>

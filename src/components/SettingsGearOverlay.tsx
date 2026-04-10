@@ -1,6 +1,7 @@
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 import { SettingsGearButton } from "./SettingsGearButton";
+import { styles } from "./SettingsGearOverlay.styles";
 
 type SettingsGearOverlayProps = {
   onPress: () => void;
@@ -22,14 +23,3 @@ export function SettingsGearOverlay(
     </View>
   );
 }
-
-const INSET = 8;
-
-const styles = StyleSheet.create({
-  root: {
-    position: "absolute",
-    top: INSET,
-    right: INSET,
-    zIndex: 10,
-  },
-});

@@ -9,6 +9,7 @@
     "start": "react-native start",
     "test": "jest",
     "test:ui": "jest --runInBand --watchman=false --testPathPattern=src/components/ui",
+    "icons": "node scripts/generate-app-icons.mjs",
     "windows": "npx @react-native-community/cli run-windows"
   },
   "dependencies": {
@@ -39,6 +40,7 @@
     "metro-config": "^0.81.5",
     "prettier": "2.8.8",
     "react-test-renderer": "18.3.1",
+    "sharp": "^0.33.5",
     "typescript": "5.0.4"
   },
   "engines": {

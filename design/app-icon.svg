@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="AudioBook Converter">
+  <defs>
+    <linearGradient id="bg" x1="6%" y1="4%" x2="94%" y2="96%">
+      <stop offset="0%" stop-color="#d8ecf4"/>
+      <stop offset="45%" stop-color="#b2d6e4"/>
+      <stop offset="100%" stop-color="#8abfcf"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="30%" r="52%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.42"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="pageL" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#eef6f8"/>
+    </linearGradient>
+    <linearGradient id="pageR" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f2f8fa"/>
+    </linearGradient>
+    <linearGradient id="cup" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5a7d8c"/>
+      <stop offset="100%" stop-color="#3d5c6b"/>
+    </linearGradient>
+    <linearGradient id="cupHi" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#8aa9b5"/>
+      <stop offset="55%" stop-color="#6d8e9c"/>
+      <stop offset="100%" stop-color="#4a6b7a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#d4945c"/>
+      <stop offset="100%" stop-color="#f2c08a"/>
+    </linearGradient>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="b"/>
+      <feOffset dx="0" dy="5" in="b" result="o"/>
+      <feMerge>
+        <feMergeNode in="o"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="228" ry="228" fill="url(#glow)"/>
+  <!-- Headphones: band behind book -->
+  <path
+    d="M 318 378
+       C 318 278 402 218 512 218
+       C 622 218 706 278 706 378"
+    fill="none"
+    stroke="url(#cupHi)"
+    stroke-width="42"
+    stroke-linecap="round"/>
+  <!-- Ear cups (behind book edges slightly) -->
+  <g filter="url(#soft)">
+    <rect x="258" y="392" width="102" height="248" rx="48" fill="url(#cup)"/>
+    <rect x="664" y="392" width="102" height="248" rx="48" fill="url(#cup)"/>
+    <rect x="274" y="408" width="72" height="216" rx="36" fill="url(#cupHi)" opacity="0.45"/>
+    <rect x="678" y="408" width="72" height="216" rx="36" fill="url(#cupHi)" opacity="0.45"/>
+  </g>
+  <!-- Open book -->
+  <g filter="url(#soft)">
+    <path
+      d="M 512 302 L 398 318 Q 368 322 352 348 L 352 738 Q 372 718 398 714 L 512 698 Z"
+      fill="url(#pageL)"
+      opacity="0.98"/>
+    <path
+      d="M 512 302 L 626 318 Q 656 322 672 348 L 672 738 Q 652 718 626 714 L 512 698 Z"
+      fill="url(#pageR)"
+      opacity="0.99"/>
+    <path
+      d="M 512 302 L 512 698"
+      stroke="#3d5c6b"
+      stroke-opacity="0.14"
+      stroke-width="9"
+      stroke-linecap="round"/>
+  </g>
+  <!-- Compact audio bars on book (lighter accent) -->
+  <g transform="translate(512, 518)">
+    <rect x="-108" y="-36" width="30" height="72" rx="15" fill="url(#accent)"/>
+    <rect x="-62" y="-58" width="30" height="116" rx="15" fill="url(#accent)" opacity="0.92"/>
+    <rect x="-16" y="-44" width="30" height="88" rx="15" fill="url(#accent)" opacity="0.88"/>
+    <rect x="30" y="-64" width="30" height="128" rx="15" fill="url(#accent)" opacity="0.94"/>
+    <rect x="76" y="-40" width="30" height="80" rx="15" fill="url(#accent)" opacity="0.9"/>
+  </g>
+</svg>

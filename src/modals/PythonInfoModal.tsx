@@ -1,9 +1,10 @@
 import React from "react";
-import { ScrollView, StyleSheet } from "react-native";
+import { ScrollView } from "react-native";
 import { DependencyStatusPanel } from "../components/DependencyStatusPanel";
 import { ButtonVariant } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import type { DependencyCheckResult } from "../utils/dependencyStatus";
+import { styles } from "./PythonInfoModal.styles";
 
 type PythonInfoModalProps = {
   visible: boolean;
@@ -39,16 +40,3 @@ export function PythonInfoModal(
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  cardWide: {
-    maxWidth: 680,
-    width: "100%",
-  },
-  scroll: {
-    maxHeight: 520,
-  },
-  scrollContent: {
-    paddingBottom: 8,
-  },
-});

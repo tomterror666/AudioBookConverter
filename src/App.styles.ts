@@ -16,12 +16,14 @@ const CONVERSION_STEP_LABEL_GAP = 16;
 export const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#ffffff",
+    position: "relative",
+    backgroundColor: "#d8ecf4",
   },
   mainColumn: {
     flex: 1,
     flexDirection: "column",
     position: "relative",
+    zIndex: 1,
   },
   mainScroll: {
     flex: 1,
@@ -105,8 +107,19 @@ export const styles = StyleSheet.create({
   startButtonWrapper: {
     marginTop: 64,
   },
-  conversionStepsList: {
+  conversionStepsListPanel: {
     marginTop: 48,
+    alignSelf: "flex-start",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "#CCCCCC",
+    borderRadius: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    overflow: "hidden",
+  },
+  conversionStepsList: {
     gap: 8,
     alignSelf: "flex-start",
   },
