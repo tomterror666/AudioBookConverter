@@ -876,11 +876,15 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   resolve(dict);
 }
 
-static void CreateMergedAudiobookResolved(NSString *rootDir,
-                                         NSArray *marks,
-                                         RCTCallableJSModules *_Nullable jsModulesForProgress,
-                                         RCTPromiseResolveBlock resolve,
-                                         RCTPromiseRejectBlock reject)
+static NSString *AUBKEncodedM4aFileName(void)
+{
+  return @"AudiobookConverter_encoded.m4a";
+}
+
+static void CreateEncodedAudiobookTrackResolved(NSString *rootDir,
+                                               RCTCallableJSModules *_Nullable jsModulesForProgress,
+                                               RCTPromiseResolveBlock resolve,
+                                               RCTPromiseRejectBlock reject)
 {
   NSFileManager *fm = [NSFileManager defaultManager];
   BOOL isDir = NO;
@@ -891,6 +895,95 @@ static void CreateMergedAudiobookResolved(NSString *rootDir,
   }
   if (!isDir) {
     reject(@"notdir", @"The path is not a directory.", nil);
+    return;
+  }
+
+  NSString *ffmpeg = FfmpegExecutablePath();
+  if (ffmpeg == nil || ffmpeg.length == 0) {
+    reject(@"no_ffmpeg", @"ffmpeg not found (PATH / Homebrew).", nil);
+    return;
+  }
+
+  NSString *venv = AppVenvRoot();
+  NSString *py = VenvPythonTokenOrReject(fm, venv, reject);
+  if (!py) {
+    return;
+  }
+
+  NSString *mergeScript =
+      [[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:@"merge_mp3_chapters.py"];
+  if (![fm isReadableFileAtPath:mergeScript]) {
+    reject(@"no_script", @"scripts/merge_mp3_chapters.py not found in the project.", nil);
+    return;
+  }
+
+  NSString *outPath = [stdRoot stringByAppendingPathComponent:AUBKEncodedM4aFileName()];
+
+  NSString *cmd = [NSString stringWithFormat:
+                              @"env PYTHONUNBUFFERED=1 %@ %@ --phase encode --root-dir %@ --ffmpeg %@ --output %@",
+                              py,
+                              ShellQuotePath(mergeScript),
+                              ShellQuotePath(stdRoot),
+                              ShellQuotePath(ffmpeg),
+                              ShellQuotePath(outPath)];
+
+  int status = -1;
+  NSMutableString *stderrAll = [NSMutableString string];
+  NSString *stdoutStr =
+      RunShellSeparatingStdoutStreamingStderr(cmd, stderrAll, &status, jsModulesForProgress, @"merge_encode");
+  NSString *stderrTxt = [stderrAll copy];
+
+  if (stdoutStr == nil) {
+    reject(@"run_failed", @"Encode step could not be started (shell error).", nil);
+    return;
+  }
+  if (status != 0) {
+    NSMutableString *detail = [NSMutableString string];
+    if (stderrTxt.length > 0) {
+      [detail appendString:stderrTxt];
+    }
+    if (detail.length == 0 && stdoutStr.length > 0) {
+      [detail appendString:stdoutStr];
+    }
+    if (detail.length == 0) {
+      [detail appendString:@"(no output)"];
+    }
+    if (detail.length > 2000) {
+      [detail deleteCharactersInRange:NSMakeRange(2000, detail.length - 2000)];
+      [detail appendString:@"…"];
+    }
+    reject(@"encode_failed", [NSString stringWithFormat:@"MP3 → M4A encode failed:\n%@", detail], nil);
+    return;
+  }
+
+  if (![fm isReadableFileAtPath:outPath]) {
+    reject(@"io", @"Encoded M4A was not created.", nil);
+    return;
+  }
+  resolve(outPath);
+}
+
+static void MuxChaptersIntoMergedM4aResolved(NSString *rootDir,
+                                            NSArray *marks,
+                                            RCTCallableJSModules *_Nullable jsModulesForProgress,
+                                            RCTPromiseResolveBlock resolve,
+                                            RCTPromiseRejectBlock reject)
+{
+  NSFileManager *fm = [NSFileManager defaultManager];
+  BOOL isDir = NO;
+  NSString *stdRoot = [rootDir stringByStandardizingPath];
+  if (![fm fileExistsAtPath:stdRoot isDirectory:&isDir]) {
+    reject(@"enoent", @"The project directory does not exist.", nil);
+    return;
+  }
+  if (!isDir) {
+    reject(@"notdir", @"The path is not a directory.", nil);
+    return;
+  }
+
+  NSString *encodedPath = [stdRoot stringByAppendingPathComponent:AUBKEncodedM4aFileName()];
+  if (![fm isReadableFileAtPath:encodedPath]) {
+    reject(@"enoent", @"AudiobookConverter_encoded.m4a not found. Run the encode step first.", nil);
     return;
   }
 
@@ -933,23 +1026,25 @@ static void CreateMergedAudiobookResolved(NSString *rootDir,
   NSString *outPath = [stdRoot stringByAppendingPathComponent:@"AudiobookConverter_merged.m4a"];
 
   NSString *cmd = [NSString stringWithFormat:
-                              @"env PYTHONUNBUFFERED=1 %@ %@ --root-dir %@ --marks-json %@ --ffmpeg %@ --output %@",
+                              @"env PYTHONUNBUFFERED=1 %@ %@ --phase mux --root-dir %@ --marks-json %@ --ffmpeg %@ "
+                              @"--encoded-audio %@ --output %@ --delete-encoded-after-mux",
                               py,
                               ShellQuotePath(mergeScript),
                               ShellQuotePath(stdRoot),
                               ShellQuotePath(tmpJson),
                               ShellQuotePath(ffmpeg),
+                              ShellQuotePath(encodedPath),
                               ShellQuotePath(outPath)];
 
   int status = -1;
   NSMutableString *stderrAll = [NSMutableString string];
   NSString *stdoutStr =
-      RunShellSeparatingStdoutStreamingStderr(cmd, stderrAll, &status, jsModulesForProgress, @"merge");
+      RunShellSeparatingStdoutStreamingStderr(cmd, stderrAll, &status, jsModulesForProgress, @"merge_chapters");
   NSString *stderrTxt = [stderrAll copy];
   [fm removeItemAtPath:tmpJson error:nil];
 
   if (stdoutStr == nil) {
-    reject(@"run_failed", @"Merge could not be started (shell error).", nil);
+    reject(@"run_failed", @"Chapter mux could not be started (shell error).", nil);
     return;
   }
   if (status != 0) {
@@ -967,12 +1062,12 @@ static void CreateMergedAudiobookResolved(NSString *rootDir,
       [detail deleteCharactersInRange:NSMakeRange(2000, detail.length - 2000)];
       [detail appendString:@"…"];
     }
-    reject(@"merge_failed", [NSString stringWithFormat:@"ffmpeg / merge failed:\n%@", detail], nil);
+    reject(@"mux_failed", [NSString stringWithFormat:@"Chapter mux failed:\n%@", detail], nil);
     return;
   }
 
   if (![fm isReadableFileAtPath:outPath]) {
-    reject(@"io", @"Output file was not created.", nil);
+    reject(@"io", @"Merged M4A was not created.", nil);
     return;
   }
   resolve(outPath);
@@ -1239,8 +1334,23 @@ RCT_REMAP_METHOD(readChapterMarksCacheIfPresent,
   });
 }
 
-RCT_REMAP_METHOD(createMergedAudiobookWithChapters,
-                 createMergedAudiobookWithChapters:(NSString *)rootDirectory
+RCT_REMAP_METHOD(createEncodedAudiobookTrack,
+                 createEncodedAudiobookTrack:(NSString *)rootDirectory
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  if (rootDirectory.length == 0) {
+    reject(@"empty", @"rootDirectory is required.", nil);
+    return;
+  }
+  RCTCallableJSModules *progressJS = self.callableJSModules;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    CreateEncodedAudiobookTrackResolved(rootDirectory, progressJS, resolve, reject);
+  });
+}
+
+RCT_REMAP_METHOD(muxChaptersIntoMergedM4a,
+                 muxChaptersIntoMergedM4a:(NSString *)rootDirectory
                  marks:(NSArray *)marks
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject)
@@ -1251,7 +1361,7 @@ RCT_REMAP_METHOD(createMergedAudiobookWithChapters,
   }
   RCTCallableJSModules *progressJS = self.callableJSModules;
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-    CreateMergedAudiobookResolved(rootDirectory, marks, progressJS, resolve, reject);
+    MuxChaptersIntoMergedM4aResolved(rootDirectory, marks, progressJS, resolve, reject);
   });
 }
 

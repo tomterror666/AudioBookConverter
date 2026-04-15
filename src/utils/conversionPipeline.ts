@@ -139,32 +139,58 @@ async function nativeDetectChaptersWithWhisper(
   return { ...parsed, usedChapterCache: false };
 }
 
-async function nativeCreateMergedAudiobookWithChapters(
+async function nativeCreateEncodedAudiobookTrack(
+  rootDirectory: string,
+): Promise<string> {
+  if (Platform.OS !== "macos") {
+    throw new Error(
+      "MP3 → M4A encode is only implemented on macOS.",
+    );
+  }
+  const mod = NativeModules.DependencyStatus as
+    | {
+        createEncodedAudiobookTrack?: (root: string) => Promise<string>;
+      }
+    | undefined;
+  const fn = mod?.createEncodedAudiobookTrack;
+  if (typeof fn !== "function") {
+    throw new Error(
+      "createEncodedAudiobookTrack (native) is not available.",
+    );
+  }
+  const out = await fn(rootDirectory);
+  if (typeof out !== "string" || !out.trim()) {
+    throw new Error("Invalid output path from native encode step.");
+  }
+  return out;
+}
+
+async function nativeMuxChaptersIntoMergedM4a(
   rootDirectory: string,
   marks: ChapterMark[],
 ): Promise<string> {
   if (Platform.OS !== "macos") {
     throw new Error(
-      "Merge with chapters is only implemented on macOS.",
+      "Chapter mux is only implemented on macOS.",
     );
   }
   const mod = NativeModules.DependencyStatus as
     | {
-        createMergedAudiobookWithChapters?: (
+        muxChaptersIntoMergedM4a?: (
           root: string,
           m: ChapterMark[],
         ) => Promise<string>;
       }
     | undefined;
-  const fn = mod?.createMergedAudiobookWithChapters;
+  const fn = mod?.muxChaptersIntoMergedM4a;
   if (typeof fn !== "function") {
     throw new Error(
-      "createMergedAudiobookWithChapters (native) is not available.",
+      "muxChaptersIntoMergedM4a (native) is not available.",
     );
   }
   const out = await fn(rootDirectory, marks);
   if (typeof out !== "string" || !out.trim()) {
-    throw new Error("Invalid output path from native merge.");
+    throw new Error("Invalid output path from native chapter mux.");
   }
   return out;
 }
@@ -220,7 +246,7 @@ export type LocateChaptersOptions = {
 /**
  * 2. Chapter marks: load `AudiobookConverter_chapters.json` in the project folder when valid
  * (same shape as Whisper output, all file paths still on disk); otherwise transcribe the first
- * ~45 s per MP3 (ffmpeg + faster-whisper). Used in step 3.
+ * ~45 s per MP3 (ffmpeg + faster-whisper). Marks feed step 4 (mux).
  */
 export async function locateChapters(
   options: LocateChaptersOptions,
@@ -252,22 +278,36 @@ export async function locateChapters(
   );
 }
 
+/** Intermediate AAC file in the project folder (before chapter mux). */
+export const ENCODED_M4A_BASENAME = "AudiobookConverter_encoded.m4a";
+
 /**
- * 3. Merge all MP3s (same order as scan) into one M4A and lay step‑2 chapters on the full timeline (ffmpeg).
- * @returns Path to the output file (…/AudiobookConverter_merged.m4a).
+ * 3. Merge all MP3s into one M4A (AAC encode only; no chapter metadata).
+ * @returns Path to `ENCODED_M4A_BASENAME` in the project folder.
  */
-export async function createMp4WithChapterMarkers(
+export async function createEncodedAudiobookTrack(
+  rootDirectory: string,
+): Promise<string> {
+  return nativeCreateEncodedAudiobookTrack(rootDirectory.trim());
+}
+
+/**
+ * 4. Lay step‑2 chapter marks on the encoded M4A timeline (ffmpeg stream copy).
+ * Removes the encoded intermediate when successful.
+ * @returns Path to `AudiobookConverter_merged.m4a`.
+ */
+export async function muxChaptersIntoMergedM4a(
   rootDirectory: string,
   chapters: ChapterDetectionResult,
 ): Promise<string> {
-  return nativeCreateMergedAudiobookWithChapters(
+  return nativeMuxChaptersIntoMergedM4a(
     rootDirectory.trim(),
     chapters.marks,
   );
 }
 
 /**
- * 4. From the merged M4A, build an audiobook `.m4b` in the MP3 project folder
+ * 5. From the merged M4A, build an audiobook `.m4b` in the MP3 project folder
  * named after that folder’s basename (sanitized; macOS native); ffmpeg remux, Audiobook genre,
  * optional title/author/cover from metadata; the intermediate M4A is removed.
  */

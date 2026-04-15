@@ -4,10 +4,11 @@ import { NativeModules, Platform } from "react-native";
 import {
   ConversionCancelledError,
   createAudiobookFile,
-  createMp4WithChapterMarkers,
+  createEncodedAudiobookTrack,
   countMp3Files,
   isConversionCancelled,
   locateChapters,
+  muxChaptersIntoMergedM4a,
 } from "./conversionPipeline";
 
 function setPlatform(os: string): void {
@@ -260,41 +261,73 @@ describe("conversionPipeline", () => {
     });
   });
 
-  describe("createMp4WithChapterMarkers", () => {
-    it("trims root and returns merged path", async () => {
-      const merge = jest.fn(async () => "/out/merged.m4a");
+  describe("createEncodedAudiobookTrack", () => {
+    it("trims root and returns encoded path", async () => {
+      const enc = jest.fn(async () => "/root/AudiobookConverter_encoded.m4a");
       (NativeModules as Record<string, unknown>).DependencyStatus = {
-        createMergedAudiobookWithChapters: merge,
+        createEncodedAudiobookTrack: enc,
       };
-      const path = await createMp4WithChapterMarkers("  /root  ", {
+      const path = await createEncodedAudiobookTrack("  /root  ");
+      expect(path).toBe("/root/AudiobookConverter_encoded.m4a");
+      expect(enc).toHaveBeenCalledWith("/root");
+    });
+
+    it("throws when encode returns empty path", async () => {
+      (NativeModules as Record<string, unknown>).DependencyStatus = {
+        createEncodedAudiobookTrack: jest.fn(async () => "   "),
+      };
+      await expect(createEncodedAudiobookTrack("/r")).rejects.toThrow(
+        "Invalid output path from native encode step.",
+      );
+    });
+
+    it("throws when not macOS", async () => {
+      setPlatform("ios");
+      await expect(createEncodedAudiobookTrack("/r")).rejects.toThrow(
+        "MP3 → M4A encode is only implemented on macOS.",
+      );
+    });
+
+    it("throws when native encode is missing", async () => {
+      await expect(createEncodedAudiobookTrack("/r")).rejects.toThrow(
+        "createEncodedAudiobookTrack (native) is not available.",
+      );
+    });
+  });
+
+  describe("muxChaptersIntoMergedM4a", () => {
+    it("trims root and returns merged path", async () => {
+      const mux = jest.fn(async () => "/out/merged.m4a");
+      (NativeModules as Record<string, unknown>).DependencyStatus = {
+        muxChaptersIntoMergedM4a: mux,
+      };
+      const path = await muxChaptersIntoMergedM4a("  /root  ", {
         marks: validMarksPayload.marks,
       });
       expect(path).toBe("/out/merged.m4a");
-      expect(merge).toHaveBeenCalledWith("/root", validMarksPayload.marks);
+      expect(mux).toHaveBeenCalledWith("/root", validMarksPayload.marks);
     });
 
-    it("throws when merge returns empty path", async () => {
+    it("throws when mux returns empty path", async () => {
       (NativeModules as Record<string, unknown>).DependencyStatus = {
-        createMergedAudiobookWithChapters: jest.fn(async () => "   "),
+        muxChaptersIntoMergedM4a: jest.fn(async () => "   "),
       };
       await expect(
-        createMp4WithChapterMarkers("/r", { marks: [] }),
-      ).rejects.toThrow("Invalid output path from native merge.");
+        muxChaptersIntoMergedM4a("/r", { marks: [] }),
+      ).rejects.toThrow("Invalid output path from native chapter mux.");
     });
 
     it("throws when not macOS", async () => {
       setPlatform("ios");
       await expect(
-        createMp4WithChapterMarkers("/r", { marks: [] }),
-      ).rejects.toThrow("Merge with chapters is only implemented on macOS.");
+        muxChaptersIntoMergedM4a("/r", { marks: [] }),
+      ).rejects.toThrow("Chapter mux is only implemented on macOS.");
     });
 
-    it("throws when native merge is missing", async () => {
+    it("throws when native mux is missing", async () => {
       await expect(
-        createMp4WithChapterMarkers("/r", { marks: [] }),
-      ).rejects.toThrow(
-        "createMergedAudiobookWithChapters (native) is not available.",
-      );
+        muxChaptersIntoMergedM4a("/r", { marks: [] }),
+      ).rejects.toThrow("muxChaptersIntoMergedM4a (native) is not available.");
     });
   });
 

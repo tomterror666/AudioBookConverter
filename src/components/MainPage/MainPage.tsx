@@ -50,9 +50,10 @@ import {
   ConversionCancelledError,
   countMp3Files,
   createAudiobookFile,
-  createMp4WithChapterMarkers,
+  createEncodedAudiobookTrack,
   isConversionCancelled,
   locateChapters,
+  muxChaptersIntoMergedM4a,
   type AudiobookM4bMetadata,
 } from "../../utils/conversionPipeline";
 import { styles } from "./MainPage.styles";
@@ -99,12 +100,17 @@ export function MainPage(): React.JSX.Element {
   const [step2SummaryVisible, setStep2SummaryVisible] = useState(false);
   const [step2SummaryContent, setStep2SummaryContent] = useState("");
   const step2SummaryResolver = useRef<(() => void) | null>(null);
-  const [step3SummaryVisible, setStep3SummaryVisible] = useState(false);
-  const [step3SummaryContent, setStep3SummaryContent] = useState("");
-  const step3SummaryResolver = useRef<(() => void) | null>(null);
-  const [step4SuccessVisible, setStep4SuccessVisible] = useState(false);
-  const [step4SuccessContent, setStep4SuccessContent] = useState("");
-  const step4SuccessResolver = useRef<(() => void) | null>(null);
+  const [step3EncodeSummaryVisible, setStep3EncodeSummaryVisible] =
+    useState(false);
+  const [step3EncodeSummaryContent, setStep3EncodeSummaryContent] =
+    useState("");
+  const step3EncodeSummaryResolver = useRef<(() => void) | null>(null);
+  const [step4MuxSummaryVisible, setStep4MuxSummaryVisible] = useState(false);
+  const [step4MuxSummaryContent, setStep4MuxSummaryContent] = useState("");
+  const step4MuxSummaryResolver = useRef<(() => void) | null>(null);
+  const [m4bSuccessVisible, setM4bSuccessVisible] = useState(false);
+  const [m4bSuccessContent, setM4bSuccessContent] = useState("");
+  const m4bSuccessResolver = useRef<(() => void) | null>(null);
   const [infoVisible, setInfoVisible] = useState(false);
   const [infoHeadline, setInfoHeadline] = useState("");
   const [infoContent, setInfoContent] = useState("");
@@ -188,43 +194,63 @@ export function MainPage(): React.JSX.Element {
     resolver?.();
   }, []);
 
-  const askStep3Summary = useCallback(
-    (mergedPath: string): Promise<void> =>
+  const askStep3EncodeSummary = useCallback(
+    (encodedPath: string): Promise<void> =>
       new Promise(resolve => {
-        setStep3SummaryContent(
-          `Step 3 complete.\n\nMerged file:\n${mergedPath}`,
+        setStep3EncodeSummaryContent(
+          `Step 3 complete.\n\nEncoded M4A (no chapters yet):\n${encodedPath}`,
         );
-        setStep3SummaryVisible(true);
-        step3SummaryResolver.current = resolve;
+        setStep3EncodeSummaryVisible(true);
+        step3EncodeSummaryResolver.current = resolve;
       }),
     [],
   );
 
-  const resolveStep3Summary = useCallback(() => {
-    const resolver = step3SummaryResolver.current;
-    step3SummaryResolver.current = null;
-    setStep3SummaryVisible(false);
-    setStep3SummaryContent("");
+  const resolveStep3EncodeSummary = useCallback(() => {
+    const resolver = step3EncodeSummaryResolver.current;
+    step3EncodeSummaryResolver.current = null;
+    setStep3EncodeSummaryVisible(false);
+    setStep3EncodeSummaryContent("");
     resolver?.();
   }, []);
 
-  const showStep4Success = useCallback(
-    (m4bPath: string): Promise<void> =>
+  const askStep4MuxSummary = useCallback(
+    (mergedPath: string): Promise<void> =>
       new Promise(resolve => {
-        setStep4SuccessContent(
-          `Conversion complete.\n\nAudiobook (M4B):\n${m4bPath}`,
+        setStep4MuxSummaryContent(
+          `Step 4 complete.\n\nMerged file with chapters:\n${mergedPath}`,
         );
-        setStep4SuccessVisible(true);
-        step4SuccessResolver.current = resolve;
+        setStep4MuxSummaryVisible(true);
+        step4MuxSummaryResolver.current = resolve;
       }),
     [],
   );
 
-  const resolveStep4Success = useCallback(() => {
-    const resolver = step4SuccessResolver.current;
-    step4SuccessResolver.current = null;
-    setStep4SuccessVisible(false);
-    setStep4SuccessContent("");
+  const resolveStep4MuxSummary = useCallback(() => {
+    const resolver = step4MuxSummaryResolver.current;
+    step4MuxSummaryResolver.current = null;
+    setStep4MuxSummaryVisible(false);
+    setStep4MuxSummaryContent("");
+    resolver?.();
+  }, []);
+
+  const showM4bSuccess = useCallback(
+    (m4bPath: string): Promise<void> =>
+      new Promise(resolve => {
+        setM4bSuccessContent(
+          `Conversion complete.\n\nAudiobook (M4B):\n${m4bPath}`,
+        );
+        setM4bSuccessVisible(true);
+        m4bSuccessResolver.current = resolve;
+      }),
+    [],
+  );
+
+  const resolveM4bSuccess = useCallback(() => {
+    const resolver = m4bSuccessResolver.current;
+    m4bSuccessResolver.current = null;
+    setM4bSuccessVisible(false);
+    setM4bSuccessContent("");
     resolver?.();
   }, []);
 
@@ -277,8 +303,12 @@ export function MainPage(): React.JSX.Element {
     conversionStep === 3 && mergeProgressTotal > 0
       ? Math.max(0, Math.min(1, mergeProgressDone / mergeProgressTotal))
       : null;
+  const step4SliderProgress =
+    conversionStep === 4 && mergeProgressTotal > 0
+      ? Math.max(0, Math.min(1, mergeProgressDone / mergeProgressTotal))
+      : null;
 
-  const conversionStepListCircleValue = (step: 1 | 2 | 3 | 4): number => {
+  const conversionStepListCircleValue = (step: 1 | 2 | 3 | 4 | 5): number => {
     if (conversionStepsListComplete) {
       return 1;
     }
@@ -299,6 +329,10 @@ export function MainPage(): React.JSX.Element {
       return Math.max(0, Math.min(1, p));
     }
     if (step === 4) {
+      const p = step4SliderProgress ?? progress;
+      return Math.max(0, Math.min(1, p));
+    }
+    if (step === 5) {
       return Math.max(0, Math.min(1, progress));
     }
     return 0;
@@ -318,7 +352,8 @@ export function MainPage(): React.JSX.Element {
         chapterTotal?: number;
         chapterMode?: string;
       }) => {
-        const isMerge = payload?.kind === "merge";
+        const k = payload?.kind ?? "";
+        const isMerge = k === "merge_encode" || k === "merge_chapters";
         const cur = Number(payload?.current);
         const tot = Number(payload?.total);
         if (!Number.isFinite(cur) || !Number.isFinite(tot) || tot <= 0) {
@@ -547,12 +582,20 @@ export function MainPage(): React.JSX.Element {
         setMergeProgressDone(0);
         setMergeProgressTotal(0);
         setProgress(0);
-        const mergedPath = await createMp4WithChapterMarkers(
+        const encodedPath = await createEncodedAudiobookTrack(
+          selectedDirectory!.trim(),
+        );
+        await askStep3EncodeSummary(encodedPath);
+        setConversionStep(4);
+        setMergeProgressDone(0);
+        setMergeProgressTotal(0);
+        setProgress(0);
+        const mergedPath = await muxChaptersIntoMergedM4a(
           selectedDirectory!.trim(),
           chapterMarks,
         );
-        await askStep3Summary(mergedPath);
-        setConversionStep(4);
+        await askStep4MuxSummary(mergedPath);
+        setConversionStep(5);
         setProgress(0);
         const metaNow = googleBooksM4bMetaRef.current;
         const hasAnyMeta =
@@ -565,7 +608,7 @@ export function MainPage(): React.JSX.Element {
           selectedDirectory!.trim(),
           hasAnyMeta ? metaNow : null,
         );
-        await showStep4Success(m4bPath);
+        await showM4bSuccess(m4bPath);
         setConversionStepsListComplete(true);
       } catch (e) {
         setConversionStepsListComplete(false);
@@ -664,7 +707,7 @@ export function MainPage(): React.JSX.Element {
                 </View>
                 <View style={styles.conversionStepsListPanel}>
                   <View style={styles.conversionStepsList}>
-                    {([1, 2, 3, 4] as const).map(step => (
+                    {([1, 2, 3, 4, 5] as const).map(step => (
                       <View key={step} style={styles.conversionStepListRow}>
                         <View style={styles.conversionStepListLabelWrap}>
                           <Label
@@ -704,14 +747,19 @@ export function MainPage(): React.JSX.Element {
         onContinue={resolveStep2Summary}
       />
       <EmbedChaptersInM4aModal
-        visible={step3SummaryVisible}
-        content={step3SummaryContent}
-        onContinue={resolveStep3Summary}
+        visible={step3EncodeSummaryVisible}
+        content={step3EncodeSummaryContent}
+        onContinue={resolveStep3EncodeSummary}
+      />
+      <EmbedChaptersInM4aModal
+        visible={step4MuxSummaryVisible}
+        content={step4MuxSummaryContent}
+        onContinue={resolveStep4MuxSummary}
       />
       <CreateAudiobookM4bModal
-        visible={step4SuccessVisible}
-        content={step4SuccessContent}
-        onClose={resolveStep4Success}
+        visible={m4bSuccessVisible}
+        content={m4bSuccessContent}
+        onClose={resolveM4bSuccess}
       />
       <InfoModal
         visible={infoVisible}

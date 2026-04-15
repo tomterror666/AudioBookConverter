@@ -10,18 +10,19 @@ alwaysApply: false
 
 1. MP3 zählen → `countMp3FilesInDirectory`
 2. Kapitel → wenn **`AudiobookConverter_chapters.json`** im Projektordner gültig ist (Pfade existieren), **kein** Whisper; sonst `detectChaptersWithWhisper` (Python `whisper_chapter_scan.py`). Nach erfolgreichem Whisper schreibt native Bridge dieselbe JSON-Datei (Cache).
-3. Merge + Kapitel-Metadaten → `createMergedAudiobookWithChapters` (`merge_mp3_chapters.py`)
-4. M4B → `createM4bAudiobook` (ffmpeg remux, löscht `AudiobookConverter_merged.m4a`)
+3. MP3 → M4A (nur AAC) → `createEncodedAudiobookTrack` (`merge_mp3_chapters.py --phase encode`)
+4. Kapitel einmuxen (copy) → `muxChaptersIntoMergedM4a` (`--phase mux`, löscht `AudiobookConverter_encoded.m4a`)
+5. M4B → `createM4bAudiobook` (ffmpeg remux, löscht `AudiobookConverter_merged.m4a`)
 
 ## Python / ffmpeg
 
 - **Scan:** nur erste **45 s** pro MP3 (ffmpeg WAV → faster-whisper), **`vad_filter=False`**; bis zu **4 parallele** Worker (je eigene Model-Instanz); **`compute_type`** z. B. **`int8_float32`**; Log **`AudiobookConverter_kapitel.log`** im gewählten Ordner; JSON nach stdout.
-- **Merge:** gleiche **sortierte** MP3-Liste wie Scan; Dauer pro MP3 per **parallelem** `ffprobe` (bis 32 Threads); AAC **`48k`** via ffmpeg **`aac_at`** (AudioToolbox auf macOS); Ausgabe **`AudiobookConverter_merged.m4a`** im Projektordner.
+- **Merge:** `--phase encode` → **`AudiobookConverter_encoded.m4a`**; `--phase mux` → **`AudiobookConverter_merged.m4a`** (Kapitel-FFmeta, `-codec copy`, encoded-Datei danach weg); `--phase full` weiter für CLI; gleiche MP3-Reihenfolge; paralleles **`ffprobe`**; AAC **`48k`** / **`aac_at`**.
 - **M4B:** **`AudiobookConverter.m4b`** im Projektordner; M4A muss direkt dort liegen (Parent = gewählter Ordner).
 
 ## Native RCT (DependencyStatus)
 
-`countMp3FilesInDirectory`, `detectChaptersWithWhisper`, `createMergedAudiobookWithChapters`, `createM4bAudiobook`, `checkAll`, `runSingleDependencyAction`.
+`countMp3FilesInDirectory`, `detectChaptersWithWhisper`, `createEncodedAudiobookTrack`, `muxChaptersIntoMergedM4a`, `createM4bAudiobook`, `checkAll`, `runSingleDependencyAction`.
 
 ## Pfade
 
