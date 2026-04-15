@@ -531,6 +531,13 @@ export function MainPage(): React.JSX.Element {
           modelSize: selectedMode!.trim(),
           device: selectedDevice!.trim().toLowerCase(),
         });
+        if (
+          chapterMarks.usedChapterCache &&
+          mp3FileTotal != null &&
+          mp3FileTotal > 0
+        ) {
+          setWhisperMp3Done(mp3FileTotal);
+        }
         setProgress(1);
         await askStep2Summary(
           chapterMarks.marks.length,

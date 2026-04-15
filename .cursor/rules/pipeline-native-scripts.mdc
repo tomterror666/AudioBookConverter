@@ -9,14 +9,14 @@ alwaysApply: false
 ## Schritte (JS)
 
 1. MP3 zählen → `countMp3FilesInDirectory`
-2. Kapitel (Whisper) → `detectChaptersWithWhisper` (Python `whisper_chapter_scan.py`)
+2. Kapitel → wenn **`AudiobookConverter_chapters.json`** im Projektordner gültig ist (Pfade existieren), **kein** Whisper; sonst `detectChaptersWithWhisper` (Python `whisper_chapter_scan.py`). Nach erfolgreichem Whisper schreibt native Bridge dieselbe JSON-Datei (Cache).
 3. Merge + Kapitel-Metadaten → `createMergedAudiobookWithChapters` (`merge_mp3_chapters.py`)
 4. M4B → `createM4bAudiobook` (ffmpeg remux, löscht `AudiobookConverter_merged.m4a`)
 
 ## Python / ffmpeg
 
-- **Scan:** nur erste **45 s** pro MP3 (ffmpeg WAV → faster-whisper), **`vad_filter=False`**; Log **`AudiobookConverter_kapitel.log`** im gewählten Ordner; JSON nach stdout.
-- **Merge:** gleiche **sortierte** MP3-Liste wie Scan; AAC **`48k`** für Sprache; Ausgabe **`AudiobookConverter_merged.m4a`** im Projektordner.
+- **Scan:** nur erste **45 s** pro MP3 (ffmpeg WAV → faster-whisper), **`vad_filter=False`**; bis zu **4 parallele** Worker (je eigene Model-Instanz); **`compute_type`** z. B. **`int8_float32`**; Log **`AudiobookConverter_kapitel.log`** im gewählten Ordner; JSON nach stdout.
+- **Merge:** gleiche **sortierte** MP3-Liste wie Scan; Dauer pro MP3 per **parallelem** `ffprobe` (bis 32 Threads); AAC **`48k`** via ffmpeg **`aac_at`** (AudioToolbox auf macOS); Ausgabe **`AudiobookConverter_merged.m4a`** im Projektordner.
 - **M4B:** **`AudiobookConverter.m4b`** im Projektordner; M4A muss direkt dort liegen (Parent = gewählter Ordner).
 
 ## Native RCT (DependencyStatus)

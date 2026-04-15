@@ -5,6 +5,7 @@ find German “Kapitel” + number (word timestamps). Times refer to the full tr
 JSON to stdout, progress to stderr.
 """
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 import json
 import os
@@ -13,7 +14,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
+
+MAX_PARALLEL_WHISPER_WORKERS = 4
 
 HEAD_SECONDS_DEFAULT = 45
 CHAPTER_LOG_FILENAME = "AudiobookConverter_kapitel.log"
@@ -202,6 +205,59 @@ def transcribe_file(model, wav_path: Path, language: str):
     return list(segments)
 
 
+def _marks_for_mp3(
+    model,
+    mp3: Path,
+    head_sec: float,
+    ffmpeg_bin: str,
+    language: str,
+) -> list:
+    wav: Optional[Path] = None
+    try:
+        wav = extract_head_wav(ffmpeg_bin, mp3, head_sec)
+        segments = transcribe_file(model, wav, language)
+    except subprocess.CalledProcessError as exc:
+        print(f"{mp3}: ffmpeg {exc.stderr!r}", file=sys.stderr)
+        raise
+    except Exception as exc:
+        print(f"{mp3}: {exc}", file=sys.stderr)
+        raise
+    finally:
+        if wav is not None and wav.exists():
+            try:
+                wav.unlink()
+            except OSError:
+                pass
+
+    words = words_from_segments(segments)
+    if not words:
+        return []
+    return find_kapitel_marks_for_file(words, str(mp3.resolve()))
+
+
+_worker_model = None
+
+
+def _init_whisper_pool(model_size: str, device: str, compute_type: str) -> None:
+    global _worker_model
+    from faster_whisper import WhisperModel
+
+    _worker_model = WhisperModel(
+        model_size,
+        device=device,
+        compute_type=compute_type,
+    )
+
+
+def _whisper_pool_job(payload: Tuple[str, float, str, str]) -> list:
+    mp3_str, head_sec, ffmpeg_bin, language = payload
+    mp3 = Path(mp3_str)
+    global _worker_model
+    if _worker_model is None:
+        raise RuntimeError("Whisper worker pool not initialized")
+    return _marks_for_mp3(_worker_model, mp3, head_sec, ffmpeg_bin, language)
+
+
 def main():
     try:
         sys.stderr.reconfigure(line_buffering=True)
@@ -227,53 +283,74 @@ def main():
         print(f"Not a directory: {root}", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:
-        print(str(exc), file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        model = WhisperModel(
-            args.model_size,
-            device=args.device,
-            compute_type=args.compute_type,
-        )
-    except Exception as exc:
-        print(str(exc), file=sys.stderr)
-        sys.exit(1)
-
-    all_marks = []
     mp3_list = list(iter_mp3_files(root))
     head_sec = max(0.5, float(args.head_seconds))
-
     nfiles = len(mp3_list)
+    all_marks: list = []
+
     if nfiles > 0:
         print(f"[0/{nfiles}]", file=sys.stderr, flush=True)
-    for idx, mp3 in enumerate(mp3_list, start=1):
-        wav: Optional[Path] = None
-        try:
-            wav = extract_head_wav(args.ffmpeg, mp3, head_sec)
-            segments = transcribe_file(model, wav, args.language)
-        except subprocess.CalledProcessError as exc:
-            print(f"{mp3}: ffmpeg {exc.stderr!r}", file=sys.stderr)
-            sys.exit(1)
-        except Exception as exc:
-            print(f"{mp3}: {exc}", file=sys.stderr)
-            sys.exit(1)
-        finally:
-            if wav is not None and wav.exists():
-                try:
-                    wav.unlink()
-                except OSError:
-                    pass
 
-        words = words_from_segments(segments)
-        if words:
-            path_resolved = str(mp3.resolve())
-            all_marks.extend(find_kapitel_marks_for_file(words, path_resolved))
-        # One line per finished file for UI progress ([done/total]).
-        print(f"[{idx}/{nfiles}]", file=sys.stderr, flush=True)
+    workers = min(MAX_PARALLEL_WHISPER_WORKERS, nfiles) if nfiles else 0
+
+    if nfiles == 0:
+        pass
+    elif workers <= 1:
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+        try:
+            model = WhisperModel(
+                args.model_size,
+                device=args.device,
+                compute_type=args.compute_type,
+            )
+        except Exception as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+
+        for idx, mp3 in enumerate(mp3_list, start=1):
+            try:
+                marks = _marks_for_mp3(
+                    model, mp3, head_sec, args.ffmpeg, args.language
+                )
+            except (subprocess.CalledProcessError, Exception):
+                sys.exit(1)
+            all_marks.extend(marks)
+            print(f"[{idx}/{nfiles}]", file=sys.stderr, flush=True)
+    else:
+        try:
+            with ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_init_whisper_pool,
+                initargs=(
+                    args.model_size,
+                    args.device,
+                    args.compute_type,
+                ),
+            ) as executor:
+                futures = [
+                    executor.submit(
+                        _whisper_pool_job,
+                        (str(p), head_sec, args.ffmpeg, args.language),
+                    )
+                    for p in mp3_list
+                ]
+                done = 0
+                for fut in as_completed(futures):
+                    try:
+                        marks = fut.result()
+                    except Exception:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        sys.exit(1)
+                    all_marks.extend(marks)
+                    done += 1
+                    print(f"[{done}/{nfiles}]", file=sys.stderr, flush=True)
+        except Exception as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
 
     all_marks = dedupe_consecutive_same_chapter(all_marks)
 

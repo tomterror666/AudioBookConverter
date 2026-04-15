@@ -17,6 +17,14 @@ function setPlatform(os: string): void {
   });
 }
 
+/** Default: no chapter cache file (Whisper path). */
+function mockMacosDeps(partial: Record<string, unknown>): void {
+  (NativeModules as Record<string, unknown>).DependencyStatus = {
+    readChapterMarksCacheIfPresent: jest.fn(async () => null),
+    ...partial,
+  };
+}
+
 const validMarksPayload = {
   marks: [
     {
@@ -76,9 +84,9 @@ describe("conversionPipeline", () => {
   describe("locateChapters", () => {
     it("trims and lowercases options and returns parsed marks", async () => {
       const whisper = jest.fn(async () => validMarksPayload);
-      (NativeModules as Record<string, unknown>).DependencyStatus = {
+      mockMacosDeps({
         detectChaptersWithWhisper: whisper,
-      };
+      });
       const result = await locateChapters({
         rootDirectory: "  /root  ",
         modelSize: "  BASE  ",
@@ -88,14 +96,50 @@ describe("conversionPipeline", () => {
         "/root",
         "base",
         "cpu",
-        "int8",
+        "int8_float32",
       );
       expect(result.marks).toHaveLength(1);
       expect(result.marks[0]?.label).toBe("Chapter 1");
+      expect(result.usedChapterCache).not.toBe(true);
+    });
+
+    it("uses cached chapter marks when present and skips whisper", async () => {
+      const whisper = jest.fn(async () => {
+        throw new Error("whisper should not run");
+      });
+      mockMacosDeps({
+        readChapterMarksCacheIfPresent: jest.fn(async () => validMarksPayload),
+        detectChaptersWithWhisper: whisper,
+      });
+      const result = await locateChapters({
+        rootDirectory: "/root",
+        modelSize: "base",
+        device: "cpu",
+      });
+      expect(whisper).not.toHaveBeenCalled();
+      expect(result.usedChapterCache).toBe(true);
+      expect(result.marks).toEqual(validMarksPayload.marks);
+    });
+
+    it("falls back to whisper when cache payload fails to parse", async () => {
+      const whisper = jest.fn(async () => validMarksPayload);
+      mockMacosDeps({
+        readChapterMarksCacheIfPresent: jest.fn(async () => ({
+          marks: [{ filePath: 1, label: "x" }],
+        })),
+        detectChaptersWithWhisper: whisper,
+      });
+      const result = await locateChapters({
+        rootDirectory: "/root",
+        modelSize: "base",
+        device: "cpu",
+      });
+      expect(whisper).toHaveBeenCalled();
+      expect(result.usedChapterCache).not.toBe(true);
     });
 
     it("accepts string startSec and number in native payload", async () => {
-      (NativeModules as Record<string, unknown>).DependencyStatus = {
+      mockMacosDeps({
         detectChaptersWithWhisper: jest.fn(async () => ({
           marks: [
             {
@@ -106,7 +150,7 @@ describe("conversionPipeline", () => {
             },
           ],
         })),
-      };
+      });
       const result = await locateChapters({
         rootDirectory: "/r",
         modelSize: "tiny",
@@ -138,9 +182,9 @@ describe("conversionPipeline", () => {
     });
 
     it("throws on invalid chapter payload", async () => {
-      (NativeModules as Record<string, unknown>).DependencyStatus = {
+      mockMacosDeps({
         detectChaptersWithWhisper: jest.fn(async () => null),
-      };
+      });
       await expect(
         locateChapters({
           rootDirectory: "/r",
@@ -151,9 +195,9 @@ describe("conversionPipeline", () => {
     });
 
     it("throws on invalid marks array", async () => {
-      (NativeModules as Record<string, unknown>).DependencyStatus = {
+      mockMacosDeps({
         detectChaptersWithWhisper: jest.fn(async () => ({ marks: "no" })),
-      };
+      });
       await expect(
         locateChapters({
           rootDirectory: "/r",
@@ -164,11 +208,11 @@ describe("conversionPipeline", () => {
     });
 
     it("throws on bad chapter item", async () => {
-      (NativeModules as Record<string, unknown>).DependencyStatus = {
+      mockMacosDeps({
         detectChaptersWithWhisper: jest.fn(async () => ({
           marks: [{ filePath: 1, label: "x" }],
         })),
-      };
+      });
       await expect(
         locateChapters({
           rootDirectory: "/r",
@@ -179,11 +223,11 @@ describe("conversionPipeline", () => {
     });
 
     it("throws when a chapter item is not an object", async () => {
-      (NativeModules as Record<string, unknown>).DependencyStatus = {
+      mockMacosDeps({
         detectChaptersWithWhisper: jest.fn(async () => ({
           marks: [null],
         })),
-      };
+      });
       await expect(
         locateChapters({
           rootDirectory: "/r",
@@ -194,7 +238,7 @@ describe("conversionPipeline", () => {
     });
 
     it("throws on non-numeric startSec", async () => {
-      (NativeModules as Record<string, unknown>).DependencyStatus = {
+      mockMacosDeps({
         detectChaptersWithWhisper: jest.fn(async () => ({
           marks: [
             {
@@ -205,7 +249,7 @@ describe("conversionPipeline", () => {
             },
           ],
         })),
-      };
+      });
       await expect(
         locateChapters({
           rootDirectory: "/r",

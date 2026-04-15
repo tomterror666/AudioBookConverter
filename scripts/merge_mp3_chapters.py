@@ -5,6 +5,7 @@ place chapter marks (filePath, startSec, label) on the full timeline.
 """
 import argparse
 import bisect
+import concurrent.futures
 import json
 import queue
 import shutil
@@ -20,6 +21,9 @@ try:
         sys.stderr.reconfigure(line_buffering=True)
 except Exception:
     pass
+
+# Parallel ffprobe subprocesses; I/O-bound — cap avoids huge process fan-out.
+_MAX_FFPROBE_WORKERS = 32
 
 
 def emit_merge_progress(cur: int, tot: int) -> None:
@@ -227,6 +231,27 @@ def probe_duration(ffmpeg: str, audio_path: Path) -> float:
     return float(r.stdout.strip())
 
 
+def probe_mp3_durations_parallel(ffmpeg: str, mp3s: list[Path], n_total: int) -> list[float]:
+    """Run ffprobe on all paths in parallel; preserve file order; emit merge progress as each finishes."""
+    n = len(mp3s)
+    if n == 0:
+        return []
+    lock = threading.Lock()
+    done_count = 0
+
+    def probe_one(path: Path) -> float:
+        nonlocal done_count
+        d = probe_duration(ffmpeg, path)
+        with lock:
+            done_count += 1
+            emit_merge_progress(done_count, n_total)
+        return d
+
+    workers = min(n, _MAX_FFPROBE_WORKERS)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(probe_one, mp3s))
+
+
 def write_concat_list(mp3s, list_path: Path):
     with open(list_path, "w", encoding="utf-8") as f:
         for p in mp3s:
@@ -285,20 +310,19 @@ def main():
 
     ffmpeg = args.ffmpeg
     nfiles = len(mp3s)
-    # ffprobe is ~ms per file; AAC concat is minutes. Linear n+2 steps would fill the bar
-    # to ~99% before the long encode — misleading.
+    # Probe phase uses a small slice of the bar; long AAC concat+mux dominates.
     w_concat = max(400, nfiles * 15)
     w_mux = 50
     n_total = nfiles + w_concat + w_mux
     emit_merge_progress(0, n_total)
 
     path_to_index = {str(p.resolve()): i for i, p in enumerate(mp3s)}
+    durations = probe_mp3_durations_parallel(ffmpeg, mp3s, n_total)
     offsets_sec = []
     acc = 0.0
-    for i, p in enumerate(mp3s):
+    for d in durations:
         offsets_sec.append(acc)
-        acc += probe_duration(ffmpeg, p)
-        emit_merge_progress(i + 1, n_total)
+        acc += d
     total_sec = acc
     total_ms = max(1, int(round(total_sec * 1000)))
 
@@ -339,7 +363,7 @@ def main():
         clist = td_p / "concat.txt"
         write_concat_list(mp3s, clist)
         pre_meta = td_p / "pre.m4a"
-        # 48k is enough for speech; less data → faster AAC than e.g. 192k
+        # 48k is enough for speech; aac_at = AudioToolbox encoder on macOS (often faster on Apple Silicon).
         cmd_concat = [
             ffmpeg,
             "-y",
@@ -353,7 +377,7 @@ def main():
             "-i",
             str(clist),
             "-c:a",
-            "aac",
+            "aac_at",
             "-b:a",
             "48k",
             "-movflags",

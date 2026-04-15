@@ -688,11 +688,75 @@ static BOOL ValidateWhisperParams(NSString *modelSize,
     reject(@"bad_device", @"Invalid device. Allowed: cpu, cuda.", nil);
     return NO;
   }
-  if (![ct isEqualToString:@"int8"]) {
-    reject(@"bad_compute", @"Only compute_type \"int8\" is supported.", nil);
+  if (![ct isEqualToString:@"int8"] && ![ct isEqualToString:@"int8_float32"]) {
+    reject(@"bad_compute",
+           @"Invalid compute_type. Allowed: int8, int8_float32.",
+           nil);
     return NO;
   }
   return YES;
+}
+
+static NSString *AUBKChapterMarksCacheFileName(void)
+{
+  return @"AudiobookConverter_chapters.json";
+}
+
+/// Same shape as whisper stdout: @{ @"marks": @[ ... ] }. Nil if file missing, invalid JSON, bad structure, or any
+/// referenced filePath is not on disk (stale cache).
+static NSDictionary *_Nullable AUBKReadValidatedChapterCacheAtRoot(NSString *stdRoot, NSFileManager *fm)
+{
+  NSString *path = [stdRoot stringByAppendingPathComponent:AUBKChapterMarksCacheFileName()];
+  if (![fm isReadableFileAtPath:path]) {
+    return nil;
+  }
+  NSError *err = nil;
+  NSData *data = [NSData dataWithContentsOfFile:path options:0 error:&err];
+  if (data == nil || data.length == 0) {
+    return nil;
+  }
+  id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&err];
+  if (![obj isKindOfClass:[NSDictionary class]] || err != nil) {
+    return nil;
+  }
+  NSDictionary *doc = (NSDictionary *)obj;
+  id marks = doc[@"marks"];
+  if (![marks isKindOfClass:[NSArray class]]) {
+    return nil;
+  }
+  for (id item in (NSArray *)marks) {
+    if (![item isKindOfClass:[NSDictionary class]]) {
+      return nil;
+    }
+    NSString *fp = item[@"filePath"];
+    if (![fp isKindOfClass:[NSString class]] || fp.length == 0) {
+      return nil;
+    }
+    if (![fm fileExistsAtPath:[fp stringByStandardizingPath]]) {
+      return nil;
+    }
+  }
+  return @{@"marks" : marks};
+}
+
+static void ReadChapterMarksCacheIfPresentResolved(NSString *rootDir,
+                                                    RCTPromiseResolveBlock resolve,
+                                                    RCTPromiseRejectBlock reject)
+{
+  (void)reject;
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSString *stdRoot = [rootDir stringByStandardizingPath];
+  BOOL isDir = NO;
+  if (![fm fileExistsAtPath:stdRoot isDirectory:&isDir] || !isDir) {
+    resolve([NSNull null]);
+    return;
+  }
+  NSDictionary *payload = AUBKReadValidatedChapterCacheAtRoot(stdRoot, fm);
+  if (payload == nil) {
+    resolve([NSNull null]);
+    return;
+  }
+  resolve(payload);
 }
 
 static void DetectChaptersWithWhisperResolved(NSString *rootDir,
@@ -800,6 +864,14 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   if (![marks isKindOfClass:[NSArray class]]) {
     reject(@"json", @"JSON has no \"marks\" array.", nil);
     return;
+  }
+  NSString *stdRootForCache = [rootDir stringByStandardizingPath];
+  NSDictionary *cacheDoc = @{@"schemaVersion" : @1, @"marks" : marks};
+  NSError *werr = nil;
+  NSData *wdata = [NSJSONSerialization dataWithJSONObject:cacheDoc options:NSJSONWritingPrettyPrinted error:&werr];
+  if (wdata != nil && werr == nil) {
+    NSString *cachePath = [stdRootForCache stringByAppendingPathComponent:AUBKChapterMarksCacheFileName()];
+    (void)[wdata writeToFile:cachePath atomically:YES];
   }
   resolve(dict);
 }
@@ -1150,6 +1222,20 @@ RCT_REMAP_METHOD(detectChaptersWithWhisper,
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     DetectChaptersWithWhisperResolved(
         rootDirectory, modelSize, device, computeType, progressJS, resolve, reject);
+  });
+}
+
+RCT_REMAP_METHOD(readChapterMarksCacheIfPresent,
+                 readChapterMarksCacheIfPresent:(NSString *)rootDirectory
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  if (rootDirectory.length == 0) {
+    reject(@"empty", @"rootDirectory is required.", nil);
+    return;
+  }
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    ReadChapterMarksCacheIfPresentResolved(rootDirectory, resolve, reject);
   });
 }
 

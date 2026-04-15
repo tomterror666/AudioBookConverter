@@ -26,7 +26,7 @@ async function nativeCountMp3Files(directoryPath: string): Promise<number> {
   return typeof n === "number" ? n : Number(n);
 }
 
-const WHISPER_COMPUTE_TYPE = "int8" as const;
+const WHISPER_COMPUTE_TYPE = "int8_float32" as const;
 
 export type ChapterMark = {
   filePath: string;
@@ -35,8 +35,13 @@ export type ChapterMark = {
   label: string;
 };
 
+/** Written next to MP3s after a successful Whisper run; reused to skip re-scanning. */
+export const CHAPTER_MARKS_CACHE_BASENAME = "AudiobookConverter_chapters.json";
+
 export type ChapterDetectionResult = {
   marks: ChapterMark[];
+  /** True when marks were loaded from `CHAPTER_MARKS_CACHE_BASENAME` (Whisper not run). */
+  usedChapterCache?: boolean;
 };
 
 function asNumber(v: unknown, field: string): number {
@@ -82,6 +87,28 @@ function parseChapterDetectionResult(raw: unknown): ChapterDetectionResult {
   return { marks };
 }
 
+async function nativeReadChapterMarksCacheIfPresent(
+  rootDirectory: string,
+): Promise<unknown | null> {
+  if (Platform.OS !== "macos") {
+    return null;
+  }
+  const mod = NativeModules.DependencyStatus as
+    | {
+        readChapterMarksCacheIfPresent?: (root: string) => Promise<unknown>;
+      }
+    | undefined;
+  const fn = mod?.readChapterMarksCacheIfPresent;
+  if (typeof fn !== "function") {
+    return null;
+  }
+  const raw = await fn(rootDirectory);
+  if (raw == null) {
+    return null;
+  }
+  return raw;
+}
+
 async function nativeDetectChaptersWithWhisper(
   rootDirectory: string,
   modelSize: string,
@@ -108,7 +135,8 @@ async function nativeDetectChaptersWithWhisper(
     throw new Error("detectChaptersWithWhisper (native) is not available.");
   }
   const raw = await fn(rootDirectory, modelSize, device, computeType);
-  return parseChapterDetectionResult(raw);
+  const parsed = parseChapterDetectionResult(raw);
+  return { ...parsed, usedChapterCache: false };
 }
 
 async function nativeCreateMergedAudiobookWithChapters(
@@ -190,15 +218,32 @@ export type LocateChaptersOptions = {
 };
 
 /**
- * 2. Transcribe only the first ~45 s per MP3 (ffmpeg + faster-whisper);
- * positions of “chapter” + number (word timestamps from track start); used in step 3.
+ * 2. Chapter marks: load `AudiobookConverter_chapters.json` in the project folder when valid
+ * (same shape as Whisper output, all file paths still on disk); otherwise transcribe the first
+ * ~45 s per MP3 (ffmpeg + faster-whisper). Used in step 3.
  */
 export async function locateChapters(
   options: LocateChaptersOptions,
 ): Promise<ChapterDetectionResult> {
+  if (Platform.OS !== "macos") {
+    throw new Error(
+      "Whisper chapter detection is only implemented on macOS.",
+    );
+  }
   const root = options.rootDirectory.trim();
   const modelSize = options.modelSize.trim().toLowerCase();
   const device = options.device.trim().toLowerCase();
+
+  const cachedRaw = await nativeReadChapterMarksCacheIfPresent(root);
+  if (cachedRaw != null) {
+    try {
+      const parsed = parseChapterDetectionResult(cachedRaw);
+      return { ...parsed, usedChapterCache: true };
+    } catch {
+      // Corrupt cache — run Whisper
+    }
+  }
+
   return nativeDetectChaptersWithWhisper(
     root,
     modelSize,
