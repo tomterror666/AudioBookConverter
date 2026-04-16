@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!-- Pinning WinUI2xVersion (ExperimentalFeatures.props) changes Microsoft.UI.Xaml vs react-native-windows packages.lock.json; NU1004 otherwise. -->
+  <PropertyGroup>
+    <RestoreLockedMode>false</RestoreLockedMode>
+  </PropertyGroup>
+</Project>
