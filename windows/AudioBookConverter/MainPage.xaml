@@ -8,9 +8,12 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-    <react:ReactRootView 
-        x:Name="ReactRootView"
-        ComponentName="AudioBookConverter"
-        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-        MinHeight="400"/>
+    <!-- Avoid WMC0015 (ReactRootView as Page.Content) on some toolchains: Page.Content is the Grid. -->
+    <Grid>
+        <react:ReactRootView
+            x:Name="ReactRootView"
+            ComponentName="AudioBookConverter"
+            Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+            MinHeight="400" />
+    </Grid>
 </Page>
