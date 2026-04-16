@@ -6,6 +6,7 @@
 
 #include "App.h"
 
+#include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 
 using namespace winrt;
@@ -24,7 +25,7 @@ namespace winrt::AudioBookConverter::implementation
             m_reactRootView.Background(brush.as<Media::Brush>());
         }
 
-        LayoutRoot().Children().Append(m_reactRootView);
+        LayoutRoot().Children().Append(m_reactRootView.as<winrt::Microsoft::UI::Xaml::UIElement>());
 
         auto const app = Application::Current().as<App>();
         m_reactRootView.ReactNativeHost(app->Host());
