@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
-  <!-- Pinning WinUI2xVersion (ExperimentalFeatures.props) changes Microsoft.UI.Xaml vs react-native-windows packages.lock.json; NU1004 otherwise. -->
+  <!--
+    WinUI2xVersion must be set here (not only in windows/ExperimentalFeatures.props): node_modules/react-native-windows
+    projects (e.g. Microsoft.ReactNative) do not import ExperimentalFeatures, so they would stay on WinUI 2.8 + pull
+    Microsoft.WindowsAppSDK 1.7 markup interop → WMC9999 on VS 2026. Repo-wide pin avoids that.
+
+    RestoreLockedMode: RNW's packages.lock.json targets [2.8.0,); pinning 2.7.3 requires unlocked restore (NU1004).
+  -->
   <PropertyGroup>
+    <WinUI2xVersion>2.7.3</WinUI2xVersion>
     <RestoreLockedMode>false</RestoreLockedMode>
   </PropertyGroup>
 </Project>

@@ -29,9 +29,4 @@
   
   </PropertyGroup>
 
-  <!-- Pin WinUI 2.7: 2.8+ pulls Microsoft.WindowsAppSDK 1.7 markup interop, which can hit WMC9999 (XamlType/DirectUIXamlType) with VS 18 / 2026. -->
-  <PropertyGroup>
-    <WinUI2xVersion>2.7.3</WinUI2xVersion>
-  </PropertyGroup>
-
 </Project>
