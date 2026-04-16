@@ -42,6 +42,9 @@ App::App() noexcept
     PackageProviders().Append(make<ReactPackageProvider>()); // Includes all modules in this project
 
     InitializeComponent();
+
+    winrt::Microsoft::UI::Xaml::Controls::XamlControlsResources const xcr{};
+    Resources().MergedDictionaries().Append(xcr.as<xaml::ResourceDictionary>());
 }
 
 /// <summary>
