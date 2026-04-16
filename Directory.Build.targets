@@ -5,7 +5,14 @@
     can emit additional warnings in node_modules sources → C2220 and a failed Microsoft.ReactNative build.
     Without that DLL/winmd, XAML then fails with bogus errors (e.g. XLS0414 System.Object, WMC0015 ReactRootView).
     This file is imported for all projects under the repo root, including node_modules/react-native-windows.
+
+    MSB8020 v145: VS 2026 may default PlatformToolset to v145; if v145 C++ components are not installed, force v143
+    (VS 2022 toolchain), which matches typical RNW setups. If you use v145, install MSVC v145 in VS Installer and
+    remove the PropertyGroup below or set PlatformToolset to v145.
   -->
+  <PropertyGroup>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <TreatWarningAsError>false</TreatWarningAsError>
