@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!--
+    RNW imports PropertySheets/Warnings.props with TreatWarningAsError for ClCompile. Newer MSVC (e.g. VS 2026)
+    can emit additional warnings in node_modules sources → C2220 and a failed Microsoft.ReactNative build.
+    Without that DLL/winmd, XAML then fails with bogus errors (e.g. XLS0414 System.Object, WMC0015 ReactRootView).
+    This file is imported for all projects under the repo root, including node_modules/react-native-windows.
+  -->
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <TreatWarningAsError>false</TreatWarningAsError>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>
