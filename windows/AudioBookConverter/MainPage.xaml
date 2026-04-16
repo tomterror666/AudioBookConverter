@@ -3,17 +3,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:AudioBookConverter"
-    xmlns:react="using:Microsoft.ReactNative"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-    <!-- Avoid WMC0015 (ReactRootView as Page.Content) on some toolchains: Page.Content is the Grid. -->
-    <Grid>
-        <react:ReactRootView
-            x:Name="ReactRootView"
-            ComponentName="AudioBookConverter"
-            Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-            MinHeight="400" />
-    </Grid>
+    <Grid x:Name="LayoutRoot" />
 </Page>

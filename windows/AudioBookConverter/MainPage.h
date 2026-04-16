@@ -7,6 +7,9 @@ namespace winrt::AudioBookConverter::implementation
     struct MainPage : MainPageT<MainPage>
     {
         MainPage();
+
+      private:
+        winrt::Microsoft::ReactNative::ReactRootView m_reactRootView{};
     };
 }
 
