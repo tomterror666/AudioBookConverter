@@ -41,9 +41,6 @@ App::App() noexcept
 
     PackageProviders().Append(make<ReactPackageProvider>()); // Includes all modules in this project
 
-    // WinUI control styles (merge in code: some VS/SDK XAML compilers reject Application.Resources on react:ReactApplication — WMC001)
-    Resources().MergedDictionaries().Append(winrt::Microsoft::UI::Xaml::Controls::XamlControlsResources{});
-
     InitializeComponent();
 }
 
