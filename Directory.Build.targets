@@ -11,4 +11,11 @@
       <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
   </ItemDefinitionGroup>
+
+  <!-- Late override: some imports can reset restore/WinUI props; keep WMC9999 mitigation for all vcxproj under repo. -->
+  <PropertyGroup>
+    <WinUI2xVersion>2.7.3</WinUI2xVersion>
+    <RestoreLockedMode>false</RestoreLockedMode>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+  </PropertyGroup>
 </Project>

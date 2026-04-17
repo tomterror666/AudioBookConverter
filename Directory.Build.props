@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
   <!--
-    WinUI2xVersion must be set here (not only in windows/ExperimentalFeatures.props): node_modules/react-native-windows
-    projects (e.g. Microsoft.ReactNative) do not import ExperimentalFeatures, so they would stay on WinUI 2.8 + pull
-    Microsoft.WindowsAppSDK 1.7 markup interop → WMC9999 on VS 2026. Repo-wide pin avoids that.
+    WinUI2xVersion must live at repo root (not only windows/ExperimentalFeatures.props): Microsoft.ReactNative under
+    node_modules does not import ExperimentalFeatures; without this pin you get WinUI 2.8 + Microsoft.WindowsAppSDK
+    1.7 markup interop → WMC9999 (XamlType/DirectUIXamlType) on VS 2026.
 
-    RestoreLockedMode: RNW's packages.lock.json targets [2.8.0,); pinning 2.7.3 requires unlocked restore (NU1004).
+    This file must be committed to Git — a fresh clone without it will hit WMC9999 again.
+
+    RestoreLockedMode / RestorePackagesWithLockFile: RNW ships packages.lock.json for [2.8.0,). Ignoring the lock file
+    lets 2.7.3 resolve; locked-only restore can still pull 2.8 from the lock (NU1004 / stale graph).
   -->
   <PropertyGroup>
     <WinUI2xVersion>2.7.3</WinUI2xVersion>
     <RestoreLockedMode>false</RestoreLockedMode>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
 </Project>
