@@ -14,7 +14,7 @@
     "test:ui:app": "jest --runInBand --watchman=false src/App.ui.test.tsx",
     "icons": "node scripts/generate-app-icons.mjs",
     "windows": "npx @react-native-community/cli run-windows",
-    "windows:sln-dotnet": "node scripts/msbuild-windows-sln.mjs ./windows/AudioBookConverter.sln /restore /t:Build /p:Configuration=Debug /p:Platform=x64 /p:AppxBundle=Never /p:RunAutolinkCheck=false /p:PlatformToolset=v143 /p:DefaultPlatformToolset=v143 /m",
+    "windows:sln-dotnet": "node scripts/msbuild-windows-sln.mjs ./windows/AudioBookConverter.sln /restore /t:Build /p:Configuration=Debug /p:Platform=x64 /p:AppxBundle=Never /p:RunAutolinkCheck=false /p:PlatformToolset=v143 /p:DefaultPlatformToolset=v143",
     "macos:release": "cd macos && xcodebuild -workspace AudioBookConverter.xcworkspace -scheme AudioBookConverter-macOS -configuration Release -derivedDataPath ./build"
   },
   "dependencies": {

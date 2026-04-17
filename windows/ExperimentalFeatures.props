@@ -7,8 +7,9 @@
     set when you created the app project, and in some cases cannot be
     simply changed here without recreating a new project.
 
-    WMC9999 (XAML): PropertySheet.props sets UseXamlCompilerExecutable; npm postinstall / windows:sln-dotnet
-    run scripts/patch-wasdk-xaml-interop.mjs so the WASDK NuGet interop.targets no longer errors on Full MSBuild.
+    XAML: PropertySheet.props sets UseXamlCompilerExecutable (default false; see comment there).
+    If you use true for WMC9999 workarounds, npm postinstall / windows:sln-dotnet restore runs
+    scripts/patch-wasdk-xaml-interop.mjs so WASDK interop.targets do not block Full MSBuild.
   -->
 
   <PropertyGroup Label="Microsoft.ReactNative Experimental Features">

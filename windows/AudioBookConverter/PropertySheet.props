@@ -12,8 +12,13 @@
     https://github.com/Microsoft/xlang/tree/master/src/package/cppwinrt/nuget
     -->
   <PropertyGroup>
-    <!-- WMC9999: use out-of-process XAML compiler (requires scripts/patch-wasdk-xaml-interop.mjs on NuGet interop.targets). -->
-    <UseXamlCompilerExecutable>true</UseXamlCompilerExecutable>
+    <!--
+      In-process XAML compile (default for many VS2022 + WASDK 1.7 setups). Out-of-process
+      (UseXamlCompilerExecutable=true) can hit MSB3073 when XamlCompiler.exe exits 1 with little log detail.
+      If you see WMC9999 (XamlType vs DirectUIXamlType), set true and ensure postinstall ran
+      scripts/patch-wasdk-xaml-interop.mjs so Full MSBuild may use the executable path.
+    -->
+    <UseXamlCompilerExecutable>false</UseXamlCompilerExecutable>
   </PropertyGroup>
   <ItemDefinitionGroup />
 </Project>
