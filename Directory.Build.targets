@@ -18,8 +18,8 @@
     <RestoreLockedMode>false</RestoreLockedMode>
   </PropertyGroup>
 
-  <!-- WASDK interop CompileXaml: WMC9999 (XamlType vs DirectUIXamlType) can appear under Framework MSBuild (e.g. VS 2026). vcxproj still requires VS MSBuild (not dotnet msbuild); see npm script windows:sln-dotnet. -->
+  <!-- WASDK in-process CompileXaml: WMC9999 (XamlType vs DirectUIXamlType) with Visual Studio 18 / MSBuild 18. npm run windows:sln-dotnet prefers VS2022 MSBuild when installed; override with MSBUILD_EXE. -->
   <Target Name="WarnWindowsXamlUseDotnetMsbuild" BeforeTargets="PrepareForBuild" Condition="'$(MSBuildProjectName)'=='AudioBookConverter' And '$(MSBuildRuntimeType)'!='Core'">
-    <Warning Text="AudioBookConverter: UWP XAML may fail (WMC9999) under Framework MSBuild. If it does, try MSBuild 17 / VS 2022, or build from Visual Studio after a clean; npm run windows:sln-dotnet uses VS MSBuild (C++ workload required)." />
+    <Warning Text="AudioBookConverter: If XAML fails with WMC9999 under VS 18, build with Visual Studio 2022 MSBuild (17.x): npm run windows:sln-dotnet picks it when side-by-side, or set MSBUILD_EXE." />
   </Target>
 </Project>

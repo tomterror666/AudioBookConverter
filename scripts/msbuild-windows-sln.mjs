@@ -17,17 +17,13 @@ function findMsBuildWithVsWhere() {
   if (!existsSync(vswhere)) {
     return null;
   }
+  const vcReq = ['-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'];
+  const find = ['-find', 'MSBuild\\Current\\Bin\\MSBuild.exe'];
+  /** Prefer VS 2022 (17.x): WASDK in-process XAML on MSBuild 18 can throw WMC9999; Core-only UseXamlCompilerExecutable is blocked on Full MSBuild. */
   const argsSets = [
-    [
-      '-latest',
-      '-products',
-      '*',
-      '-requires',
-      'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
-      '-find',
-      'MSBuild\\Current\\Bin\\MSBuild.exe',
-    ],
-    ['-latest', '-products', '*', '-find', 'MSBuild\\Current\\Bin\\MSBuild.exe'],
+    ['-latest', '-version', '[17.0,18.0)', '-products', '*', ...vcReq, ...find],
+    ['-latest', '-products', '*', ...vcReq, ...find],
+    ['-latest', '-products', '*', ...find],
   ];
   for (const args of argsSets) {
     try {
@@ -41,6 +37,17 @@ function findMsBuildWithVsWhere() {
     }
   }
   return null;
+}
+
+function warnIfVs18Msbuild(msbuildPath) {
+  const norm = msbuildPath.replace(/\\/g, '/').toLowerCase();
+  if (norm.includes('/microsoft visual studio/18/')) {
+    console.warn(
+      '[windows] Using Visual Studio 18 (2026) MSBuild. UWP / WinUI XAML may hit WMC9999 (XamlType vs DirectUIXamlType).\n' +
+        '[windows] Install Visual Studio 2022 (17.x) with “Desktop development with C++” side-by-side — this script prefers its MSBuild.\n' +
+        '[windows] Or set MSBUILD_EXE to VS2022 MSBuild.exe explicitly.',
+    );
+  }
 }
 
 function resolveMsBuild() {
@@ -59,6 +66,7 @@ if (!msbuild) {
   );
   process.exit(1);
 }
+warnIfVs18Msbuild(msbuild);
 
 const args = process.argv.slice(2);
 if (args.length === 0) {
