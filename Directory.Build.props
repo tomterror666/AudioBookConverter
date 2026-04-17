@@ -7,12 +7,11 @@
 
     This file must be committed to Git — a fresh clone without it will hit WMC9999 again.
 
-    RestoreLockedMode / RestorePackagesWithLockFile: RNW ships packages.lock.json for [2.8.0,). Ignoring the lock file
-    lets 2.7.3 resolve; locked-only restore can still pull 2.8 from the lock (NU1004 / stale graph).
+    RestoreLockedMode=false: RNW ships packages.lock.json; with WinUI2xVersion 2.7.3 the lock can disagree (NU1004).
+    Do not set RestorePackagesWithLockFile=false — NuGet NU1005 if a packages.lock.json exists.
   -->
   <PropertyGroup>
     <WinUI2xVersion>2.7.3</WinUI2xVersion>
     <RestoreLockedMode>false</RestoreLockedMode>
-    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
 </Project>

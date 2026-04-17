@@ -16,6 +16,5 @@
   <PropertyGroup>
     <WinUI2xVersion>2.7.3</WinUI2xVersion>
     <RestoreLockedMode>false</RestoreLockedMode>
-    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
 </Project>
