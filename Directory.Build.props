@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
   <!--
-    WinUI2xVersion must live at repo root (not only windows/ExperimentalFeatures.props): Microsoft.ReactNative under
-    node_modules does not import ExperimentalFeatures; without this pin you get WinUI 2.8 + Microsoft.WindowsAppSDK
-    1.7 markup interop → WMC9999 (XamlType/DirectUIXamlType) on VS 2026.
+    WinUI2xVersion (repo-wide): keeps Microsoft.UI.Xaml off 2.8 defaults for node_modules projects.
+    AudioBookConverter.vcxproj also pins Microsoft.WindowsAppSDK 1.6.x — WinUI 2.7 alone can still transitively pull WASDK 1.7 (WMC9999).
 
     This file must be committed to Git — a fresh clone without it will hit WMC9999 again.
 
