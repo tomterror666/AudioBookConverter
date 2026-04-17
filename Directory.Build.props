@@ -13,4 +13,11 @@
     <WinUI2xVersion>2.7.3</WinUI2xVersion>
     <RestoreLockedMode>false</RestoreLockedMode>
   </PropertyGroup>
+
+  <!-- dotnet msbuild /restore: OutDir can be empty when Bundle.props runs; RNW Bundle.props line 54 calls GetFullPath(OutDir) → MSB4184. -->
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj' And '$(OutDir)' == ''">
+    <OutDir Condition="'$(Configuration)' != '' And '$(Platform)' != ''">$(Platform)\$(Configuration)\</OutDir>
+    <OutDir Condition="'$(OutDir)' == '' And '$(Configuration)' != ''">$(Configuration)\</OutDir>
+    <OutDir Condition="'$(OutDir)' == ''">bin\</OutDir>
+  </PropertyGroup>
 </Project>
