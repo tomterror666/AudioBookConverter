@@ -2,9 +2,9 @@
 <Project>
   <!--
     WinUI2xVersion (repo-wide): keeps Microsoft.UI.Xaml off 2.8 defaults for node_modules projects.
-    AudioBookConverter.vcxproj also pins Microsoft.WindowsAppSDK 1.6.x — WinUI 2.7 alone can still transitively pull WASDK 1.7 (WMC9999).
+    Keep WinUI2xVersion here; WASDK must match autolinked modules (e.g. FilePanel needs WindowsAppSDK 1.7+).
 
-    This file must be committed to Git — a fresh clone without it will hit WMC9999 again.
+    This file must be committed to Git — a fresh clone without it can hit WinUI / restore mismatches.
 
     RestoreLockedMode=false: RNW ships packages.lock.json; with WinUI2xVersion 2.7.3 the lock can disagree (NU1004).
     Do not set RestorePackagesWithLockFile=false — NuGet NU1005 if a packages.lock.json exists.
