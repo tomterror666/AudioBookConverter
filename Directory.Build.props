@@ -14,7 +14,7 @@
     <RestoreLockedMode>false</RestoreLockedMode>
   </PropertyGroup>
 
-  <!-- dotnet msbuild /restore: OutDir can be empty when Bundle.props runs; RNW Bundle.props line 54 calls GetFullPath(OutDir) → MSB4184. -->
+  <!-- Early default only; App project also imports RnwBundleOutDir.props after Microsoft.Cpp.targets (before Bundle.props). -->
   <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj' And '$(OutDir)' == ''">
     <OutDir Condition="'$(Configuration)' != '' And '$(Platform)' != ''">$(Platform)\$(Configuration)\</OutDir>
     <OutDir Condition="'$(OutDir)' == '' And '$(Configuration)' != ''">$(Configuration)\</OutDir>
