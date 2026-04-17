@@ -10,7 +10,14 @@ import { fileURLToPath } from 'node:url';
 
 const MARKER = '<!-- AudioBookConverter: wasdk-interop-patched (WMC9999) -->';
 
+/**
+ * WASDK 1.7+ splits this `<Error>` across two lines (Text on one line, Condition on the next).
+ * A single-line-only regex misses those; `[\s\S]*?` matches CRLF/LF between attributes.
+ */
 const ERROR_BLOCK =
+  /<Error\s+Text="The executable Xaml compiler is no longer supported\.\s+Please set UseXamlCompilerExecutable=false\."[\s\S]*?Condition=" '\$\(MSBuildRuntimeType\)' != 'Core' And '\$\(UseXamlCompilerExecutable\)' == 'true'" \/>/g;
+
+const LEGACY_ERROR_BLOCK =
   /<Error\s+Text="The executable Xaml compiler is no longer supported\.\s+Please set UseXamlCompilerExecutable=false\."\s+Condition=" '\$\(MSBuildRuntimeType\)' != 'Core' And '\$\(UseXamlCompilerExecutable\)' == 'true'" \/>/g;
 
 function readWasdkVersion(repoRoot) {
@@ -54,12 +61,21 @@ export function applyWasdkXamlInteropPatch(repoRoot) {
     if (content.includes(MARKER)) {
       continue;
     }
-    const n = (content.match(ERROR_BLOCK) || []).length;
-    if (n === 0) {
-      console.warn(`[patch-wasdk-xaml-interop] Expected "executable Xaml compiler" Error block not found in:\n  ${interop}`);
+    const before = content;
+    content = content.replace(ERROR_BLOCK, '');
+    content = content.replace(LEGACY_ERROR_BLOCK, '');
+    const removed = before.length - content.length;
+    if (removed === 0) {
+      const stillBlocked =
+        /executable Xaml compiler is no longer supported/i.test(before) &&
+        /MSBuildRuntimeType.*UseXamlCompilerExecutable/i.test(before);
+      if (stillBlocked) {
+        console.warn(
+          `[patch-wasdk-xaml-interop] Blocking "executable Xaml compiler" Error is still present but the removal pattern did not match. Update ERROR_BLOCK in scripts/patch-wasdk-xaml-interop.mjs.\n  ${interop}`,
+        );
+      }
       continue;
     }
-    content = content.replace(ERROR_BLOCK, '');
     if (!content.includes(MARKER)) {
       content = content.replace(/^(<\?xml[^?]*\?>\s*)/m, `$1${MARKER}\n`);
     }
