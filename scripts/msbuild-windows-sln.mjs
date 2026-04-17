@@ -79,7 +79,10 @@ const sln = args.find((a) => /\.sln$/i.test(a));
 const spawnOpts = { stdio: 'inherit', windowsVerbatimArguments: false };
 
 if (sln && args.includes('/restore')) {
-  const forRestore = args.filter((a) => a !== '/restore' && !/^\/t:/i.test(a));
+  /** Drop `/restore`, targets, and the solution path — we pass `[sln, '/restore', ...]` so `sln` must not repeat in `forRestore`. */
+  const forRestore = args.filter(
+    (a) => a !== '/restore' && !/^\/t:/i.test(a) && a !== sln,
+  );
   const r0 = spawnSync(msbuild, [sln, '/restore', ...forRestore], spawnOpts);
   if (r0.status !== 0) {
     process.exit(r0.status ?? 1);
