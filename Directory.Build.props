@@ -15,12 +15,12 @@
   </PropertyGroup>
 
   <!--
-    MSBuild 17 (VS 2022) with newest MSVC v145 installed: DefaultPlatformToolset becomes v145 → CppCommon imports
-    WindowsXaml\v18.0\Microsoft.Windows.UI.Xaml.Cpp.targets, which is not under the VS 2022 install → MSB4019.
-    Set v143 before Microsoft.Cpp.* imports so React.Cpp.props keeps it (it only fills empty PlatformToolset).
+    VS 2022 + MSVC v145: CppCommon pulls WindowsXaml\v18.0 (MSB4019 under VS2022). NuGet obj\*.nuget.g.props can set v145
+    after this file — use npm script /p:PlatformToolset=v143 (global; wins over imports). This block helps IDE builds.
   -->
   <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj' And '$(MSBuildVersion)' != '' And $([MSBuild]::VersionLessThan('$(MSBuildVersion)', '18.0'))">
     <PlatformToolset>v143</PlatformToolset>
+    <DefaultPlatformToolset>v143</DefaultPlatformToolset>
   </PropertyGroup>
 
   <!-- Early default only; App project also imports RnwBundleOutDir.props after Microsoft.Cpp.targets (before Bundle.props). -->
