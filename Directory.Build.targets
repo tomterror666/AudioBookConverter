@@ -17,4 +17,9 @@
     <WinUI2xVersion>2.7.3</WinUI2xVersion>
     <RestoreLockedMode>false</RestoreLockedMode>
   </PropertyGroup>
+
+  <!-- WASDK interop CompileXaml: WMC9999 (XamlType vs DirectUIXamlType) with .NET Framework MSBuild (VS 2026 / MSBuild 18 Full). Core host sets UseXamlCompilerExecutable and avoids the in-process task. -->
+  <Target Name="WarnWindowsXamlUseDotnetMsbuild" BeforeTargets="PrepareForBuild" Condition="'$(MSBuildProjectName)'=='AudioBookConverter' And '$(MSBuildRuntimeType)'!='Core'">
+    <Warning Text="AudioBookConverter: UWP XAML may fail (WMC9999) under Framework MSBuild. Build with Core: npm run windows:sln-dotnet (and npm start separately), or use Visual Studio 2022 MSBuild 17." />
+  </Target>
 </Project>
