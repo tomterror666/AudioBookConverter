@@ -18,8 +18,4 @@
     <RestoreLockedMode>false</RestoreLockedMode>
   </PropertyGroup>
 
-  <!-- WASDK in-process CompileXaml: WMC9999 (XamlType vs DirectUIXamlType) with Visual Studio 18 / MSBuild 18. npm run windows:sln-dotnet prefers VS2022 MSBuild when installed; override with MSBUILD_EXE. -->
-  <Target Name="WarnWindowsXamlUseDotnetMsbuild" BeforeTargets="PrepareForBuild" Condition="'$(MSBuildProjectName)'=='AudioBookConverter' And '$(MSBuildRuntimeType)'!='Core'">
-    <Warning Text="AudioBookConverter: If XAML fails with WMC9999 under VS 18, build with Visual Studio 2022 MSBuild (17.x): npm run windows:sln-dotnet picks it when side-by-side, or set MSBUILD_EXE." />
-  </Target>
 </Project>

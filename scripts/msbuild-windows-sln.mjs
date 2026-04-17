@@ -6,6 +6,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { applyWasdkXamlInteropPatch } from './patch-wasdk-xaml-interop.mjs';
 
 function vswherePath() {
   const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
@@ -74,5 +75,19 @@ if (args.length === 0) {
   process.exit(1);
 }
 
-const r = spawnSync(msbuild, args, { stdio: 'inherit', windowsVerbatimArguments: false });
+const sln = args.find((a) => /\.sln$/i.test(a));
+const spawnOpts = { stdio: 'inherit', windowsVerbatimArguments: false };
+
+if (sln && args.includes('/restore')) {
+  const forRestore = args.filter((a) => a !== '/restore' && !/^\/t:/i.test(a));
+  const r0 = spawnSync(msbuild, [sln, '/restore', ...forRestore], spawnOpts);
+  if (r0.status !== 0) {
+    process.exit(r0.status ?? 1);
+  }
+  applyWasdkXamlInteropPatch(process.cwd());
+} else {
+  applyWasdkXamlInteropPatch(process.cwd());
+}
+
+const r = spawnSync(msbuild, args, spawnOpts);
 process.exit(r.status === null ? 1 : r.status);

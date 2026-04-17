@@ -6,6 +6,9 @@
     your app and *all* native modules your app consumes. These values were
     set when you created the app project, and in some cases cannot be
     simply changed here without recreating a new project.
+
+    WMC9999 (XAML): PropertySheet.props sets UseXamlCompilerExecutable; npm postinstall / windows:sln-dotnet
+    run scripts/patch-wasdk-xaml-interop.mjs so the WASDK NuGet interop.targets no longer errors on Full MSBuild.
   -->
 
   <PropertyGroup Label="Microsoft.ReactNative Experimental Features">

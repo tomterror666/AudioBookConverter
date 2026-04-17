@@ -11,6 +11,9 @@
     For more advanced scenarios, and complete documentation, please see:
     https://github.com/Microsoft/xlang/tree/master/src/package/cppwinrt/nuget
     -->
-  <PropertyGroup />
+  <PropertyGroup>
+    <!-- WMC9999: use out-of-process XAML compiler (requires scripts/patch-wasdk-xaml-interop.mjs on NuGet interop.targets). -->
+    <UseXamlCompilerExecutable>true</UseXamlCompilerExecutable>
+  </PropertyGroup>
   <ItemDefinitionGroup />
 </Project>
