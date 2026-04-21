@@ -25,7 +25,7 @@ static BOOL AUBKHasInstalledPythonInfoMenu = NO;
 }
 
 static const CGFloat kAUBKInitialContentWidth = 850;
-static const CGFloat kAUBKInitialContentHeight = 650;
+static const CGFloat kAUBKInitialContentHeight = 780;
 
 - (void)loadReactNativeWindow:(NSDictionary *)launchOptions
 {

@@ -89,12 +89,13 @@ export async function fetchGoogleBooksFirstCover(
   const key = GOOGLE_BOOKS_API_KEY.trim();
   if (key.length > 0) {
     url += `&key=${encodeURIComponent(key)}`;
-  }
+  }console.log(777, "url", url);
   const res = await fetch(url, {
     signal: options?.signal,
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
+    console.log(778, "res", res.status);
     throw new Error(`Google Books HTTP ${String(res.status)}`);
   }
   const data = (await res.json()) as VolumesListResponse;

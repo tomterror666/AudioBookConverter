@@ -1,4 +1,5 @@
 import { StyleSheet } from "react-native";
+import { Color } from "../../constants";
 
 const CONTENT_ROW_PADDING = 24;
 const FORM_EDGE_MARGIN = 32;
@@ -25,7 +26,7 @@ export const styles = StyleSheet.create({
   },
   mainScrollContent: {
     flexGrow: 1,
-    paddingBottom: 8,
+    paddingBottom: 48,
   },
   contentRow: {
     flexDirection: "row",
@@ -47,6 +48,24 @@ export const styles = StyleSheet.create({
   verzeichnisRow: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  /** Folder label + path field + cover thumbnail (matches `pathInputWrapper` horizontal inset). */
+  folderInputRow: {
+    marginLeft: 64,
+    flex: 1,
+    maxWidth: 600,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  pathInputFlex: {
+    flex: 1,
+    minWidth: 0,
+  },
+  /** Merged with `InputField` outline so the field shrinks when cover is shown. */
+  pathInputFieldWrapper: {
+    flex: 1,
+    minWidth: 0,
   },
   fieldLabelContainer: {
     width: 130,
@@ -101,10 +120,39 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  pathInputWrapper: {
-    marginLeft: 64,
+  /** Same chrome as `InputField` outline for the non-image placeholder. */
+  folderCoverChrome: {
+    flexShrink: 0,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "#CCCCCC",
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  folderCoverImage: {
+    width: "100%",
+    height: "100%",
+  },
+  folderCoverPlaceholder: {
     flex: 1,
-    maxWidth: 600,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#FFFFFF",
+  },
+  folderCoverErrorInner: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  folderCoverErrorGlyph: {
+    color: Color.destructive,
+    fontSize: 22,
+    fontWeight: "700",
+    lineHeight: 26,
   },
   startButtonWrapper: {
     marginTop: 64,

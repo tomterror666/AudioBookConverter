@@ -5,13 +5,16 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { ImageLoadEventData, NativeSyntheticEvent } from "react-native";
 import {
   ActivityIndicator,
   DeviceEventEmitter,
+  Image,
   NativeModules,
   Platform,
   ScrollView,
   Switch,
+  Text,
   View,
 } from "react-native";
 import { openFolder } from "react-native-file-panel";
@@ -75,7 +78,11 @@ type BookCoverPreviewState =
       authors: string | null;
     }
   | { status: "empty" }
+  /** Cover fetch failed; folder thumbnail shows a red question mark. */
   | { status: "error" };
+
+/** Placeholder width when cover intrinsic size is unknown (typical book cover ratio). */
+const FOLDER_COVER_DEFAULT_ASPECT = 2 / 3;
 
 export function MainPage(): React.JSX.Element {
   const [progress, setProgress] = useState(0);
@@ -135,6 +142,18 @@ export function MainPage(): React.JSX.Element {
   const [bookCoverPreview, setBookCoverPreview] =
     useState<BookCoverPreviewState>({ status: "idle" });
   const googleBooksM4bMetaRef = useRef<AudiobookM4bMetadata | null>(null);
+  const [folderInputRowHeight, setFolderInputRowHeight] = useState(44);
+  const [coverIntrinsicSize, setCoverIntrinsicSize] = useState<{
+    w: number;
+    h: number;
+  } | null>(null);
+
+  const coverUriForFolder =
+    bookCoverPreview.status === "ok" ? bookCoverPreview.uri : null;
+
+  useEffect(() => {
+    setCoverIntrinsicSize(null);
+  }, [coverUriForFolder]);
 
   useEffect(() => {
     if (bookCoverPreview.status === "ok") {
@@ -525,6 +544,26 @@ export function MainPage(): React.JSX.Element {
     dependencyStatuses != null && !allDependencyLedsGreen(dependencyStatuses);
   const startLooksInactive = !formComplete || isConverting || !depsOkForStart;
 
+  const folderCoverAspect =
+    coverIntrinsicSize != null &&
+    coverIntrinsicSize.h > 0 &&
+    coverIntrinsicSize.w > 0
+      ? coverIntrinsicSize.w / coverIntrinsicSize.h
+      : FOLDER_COVER_DEFAULT_ASPECT;
+  const folderCoverWidth = folderInputRowHeight * folderCoverAspect;
+
+  const onFolderCoverLoad = useCallback(
+    (e: NativeSyntheticEvent<ImageLoadEventData>) => {
+    const s = e.nativeEvent.source;
+    const w = typeof s.width === "number" ? s.width : 0;
+    const h = typeof s.height === "number" ? s.height : 0;
+      if (w > 0 && h > 0) {
+        setCoverIntrinsicSize({ w, h });
+      }
+    },
+    [],
+  );
+
   const handleStartPress = () => {
     if (isConverting) {
       return;
@@ -679,14 +718,52 @@ export function MainPage(): React.JSX.Element {
                       align={LabelAlign.Left}
                     />
                   </View>
-                  <InputField
-                    wrapperStyle={styles.pathInputWrapper}
-                    onPress={handleVerzeichnisPress}
-                    value={selectedDirectory}
-                    placeholder="AudioBooks"
-                    numberOfLines={1}
-                    ellipsizeMode="middle"
-                  />
+                  <View style={styles.folderInputRow}>
+                    <View
+                      style={styles.pathInputFlex}
+                      onLayout={e => {
+                        const h = e.nativeEvent.layout.height;
+                        if (h > 0) {
+                          setFolderInputRowHeight(h);
+                        }
+                      }}>
+                      <InputField
+                        wrapperStyle={styles.pathInputFieldWrapper}
+                        onPress={handleVerzeichnisPress}
+                        value={selectedDirectory}
+                        placeholder="AudioBooks"
+                        numberOfLines={1}
+                        ellipsizeMode="middle"
+                      />
+                    </View>
+                    <View
+                      style={[
+                        styles.folderCoverChrome,
+                        {
+                          width: folderCoverWidth,
+                          height: folderInputRowHeight,
+                        },
+                      ]}>
+                      {coverUriForFolder ? (
+                        <Image
+                          source={{ uri: coverUriForFolder }}
+                          style={styles.folderCoverImage}
+                          resizeMode="contain"
+                          onLoad={onFolderCoverLoad}
+                        />
+                      ) : bookCoverPreview.status === "error" ? (
+                        <View style={styles.folderCoverErrorInner}>
+                          <Text
+                            style={styles.folderCoverErrorGlyph}
+                            accessibilityLabel="Cover lookup failed">
+                            ?
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={styles.folderCoverPlaceholder} />
+                      )}
+                    </View>
+                  </View>
                 </View>
                 <View style={styles.modeRow}>
                   <View style={styles.fieldLabelContainer}>
