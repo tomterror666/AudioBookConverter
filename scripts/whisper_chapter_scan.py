@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 For each MP3, transcribe only the first --head-seconds (default 45) with ffmpeg + faster-whisper,
-find German “Kapitel” + number (word timestamps). Times refer to the full track (offset 0).
+find spoken “Kapitel” or “Chapter” + number (word timestamps). Times refer to the full track (offset 0).
 JSON to stdout, progress to stderr.
 """
 import argparse
@@ -22,6 +22,22 @@ HEAD_SECONDS_DEFAULT = 45
 CHAPTER_LOG_FILENAME = "AudiobookConverter_kapitel.log"
 
 
+def whisper_model_is_cached_locally(model_size: str) -> bool:
+    """
+    True if faster-whisper can resolve the CTranslate2 snapshot from the HF cache
+    without downloading (same check as WhisperModel uses via huggingface_hub).
+    """
+    from faster_whisper.utils import download_model
+
+    try:
+        download_model(model_size, local_files_only=True)
+        return True
+    except ValueError:
+        raise
+    except Exception:
+        return False
+
+
 def format_timecode(seconds: float) -> str:
     if seconds < 0:
         seconds = 0.0
@@ -39,6 +55,7 @@ def write_chapter_log(
     model_size: str,
     device: str,
     head_seconds: float,
+    chapter_cue: str,
 ) -> None:
     log_path = root / CHAPTER_LOG_FILENAME
     lines = [
@@ -48,7 +65,10 @@ def write_chapter_log(
             "Generated (UTC): "
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
         ),
-        f"Model: {model_size}, device: {device}, scan: first {head_seconds:.0f} s per MP3",
+        (
+            f"Model: {model_size}, device: {device}, chapter cue: {chapter_cue}, "
+            f"scan: first {head_seconds:.0f} s per MP3"
+        ),
         "",
         f"Chapter markers found: {len(all_marks)}",
         "",
@@ -102,12 +122,18 @@ def iter_mp3_files(root: Path):
             yield path
 
 
-def normalize_word(w: str) -> str:
+def normalize_word_de(w: str) -> str:
     return re.sub(r"[^\wäöüß]", "", w, flags=re.I).lower()
 
 
-def is_kapitel(w: str) -> bool:
-    return normalize_word(w) == "kapitel"
+def normalize_word_en(w: str) -> str:
+    return re.sub(r"[^\w]", "", w, flags=re.I).lower()
+
+
+def word_matches_chapter_cue(w: str, chapter_cue: str) -> bool:
+    if chapter_cue == "en":
+        return normalize_word_en(w) == "chapter"
+    return normalize_word_de(w) == "kapitel"
 
 
 def first_int_in(w: str):
@@ -149,10 +175,10 @@ def dedupe_consecutive_same_chapter(marks: list) -> list:
     return out
 
 
-def find_kapitel_marks_for_file(words, file_path_resolved: str):
+def find_chapter_marks_for_file(words, file_path_resolved: str, chapter_cue: str):
     marks = []
     for i in range(len(words) - 1):
-        if not is_kapitel(words[i].word):
+        if not word_matches_chapter_cue(words[i].word, chapter_cue):
             continue
         num = first_int_in(words[i + 1].word)
         if num is None:
@@ -211,6 +237,7 @@ def _marks_for_mp3(
     head_sec: float,
     ffmpeg_bin: str,
     language: str,
+    chapter_cue: str,
 ) -> list:
     wav: Optional[Path] = None
     try:
@@ -232,7 +259,7 @@ def _marks_for_mp3(
     words = words_from_segments(segments)
     if not words:
         return []
-    return find_kapitel_marks_for_file(words, str(mp3.resolve()))
+    return find_chapter_marks_for_file(words, str(mp3.resolve()), chapter_cue)
 
 
 _worker_model = None
@@ -249,13 +276,15 @@ def _init_whisper_pool(model_size: str, device: str, compute_type: str) -> None:
     )
 
 
-def _whisper_pool_job(payload: Tuple[str, float, str, str]) -> list:
-    mp3_str, head_sec, ffmpeg_bin, language = payload
+def _whisper_pool_job(payload: Tuple[str, float, str, str, str]) -> list:
+    mp3_str, head_sec, ffmpeg_bin, language, chapter_cue = payload
     mp3 = Path(mp3_str)
     global _worker_model
     if _worker_model is None:
         raise RuntimeError("Whisper worker pool not initialized")
-    return _marks_for_mp3(_worker_model, mp3, head_sec, ffmpeg_bin, language)
+    return _marks_for_mp3(
+        _worker_model, mp3, head_sec, ffmpeg_bin, language, chapter_cue
+    )
 
 
 def main():
@@ -276,7 +305,14 @@ def main():
         default=HEAD_SECONDS_DEFAULT,
         help=f"Transcribe only the first N seconds (default: {HEAD_SECONDS_DEFAULT})",
     )
+    parser.add_argument(
+        "--chapter-cue",
+        choices=("de", "en"),
+        default="de",
+        help='Spoken cue before chapter number: "de" = Kapitel, "en" = Chapter',
+    )
     args = parser.parse_args()
+    chapter_cue: str = args.chapter_cue
 
     root = Path(args.root_dir).expanduser().resolve()
     if not root.is_dir():
@@ -287,9 +323,6 @@ def main():
     head_sec = max(0.5, float(args.head_seconds))
     nfiles = len(mp3_list)
     all_marks: list = []
-
-    if nfiles > 0:
-        print(f"[0/{nfiles}]", file=sys.stderr, flush=True)
 
     workers = min(MAX_PARALLEL_WHISPER_WORKERS, nfiles) if nfiles else 0
 
@@ -302,6 +335,13 @@ def main():
             print(str(exc), file=sys.stderr)
             sys.exit(1)
         try:
+            cached = whisper_model_is_cached_locally(args.model_size)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+        if not cached:
+            print("[model:download]", file=sys.stderr, flush=True)
+        try:
             model = WhisperModel(
                 args.model_size,
                 device=args.device,
@@ -310,17 +350,46 @@ def main():
         except Exception as exc:
             print(str(exc), file=sys.stderr)
             sys.exit(1)
+        if not cached:
+            print("[model:ready]", file=sys.stderr, flush=True)
+        if nfiles > 0:
+            print(f"[0/{nfiles}]", file=sys.stderr, flush=True)
 
         for idx, mp3 in enumerate(mp3_list, start=1):
             try:
                 marks = _marks_for_mp3(
-                    model, mp3, head_sec, args.ffmpeg, args.language
+                    model,
+                    mp3,
+                    head_sec,
+                    args.ffmpeg,
+                    args.language,
+                    chapter_cue,
                 )
             except (subprocess.CalledProcessError, Exception):
                 sys.exit(1)
             all_marks.extend(marks)
             print(f"[{idx}/{nfiles}]", file=sys.stderr, flush=True)
     else:
+        try:
+            from faster_whisper.utils import download_model
+        except ImportError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+        try:
+            cached = whisper_model_is_cached_locally(args.model_size)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+        if not cached:
+            print("[model:download]", file=sys.stderr, flush=True)
+            try:
+                download_model(args.model_size, local_files_only=False)
+            except Exception as exc:
+                print(str(exc), file=sys.stderr)
+                sys.exit(1)
+            print("[model:ready]", file=sys.stderr, flush=True)
+        if nfiles > 0:
+            print(f"[0/{nfiles}]", file=sys.stderr, flush=True)
         try:
             with ProcessPoolExecutor(
                 max_workers=workers,
@@ -334,7 +403,13 @@ def main():
                 futures = [
                     executor.submit(
                         _whisper_pool_job,
-                        (str(p), head_sec, args.ffmpeg, args.language),
+                        (
+                            str(p),
+                            head_sec,
+                            args.ffmpeg,
+                            args.language,
+                            chapter_cue,
+                        ),
                     )
                     for p in mp3_list
                 ]
@@ -361,6 +436,7 @@ def main():
             model_size=args.model_size,
             device=args.device,
             head_seconds=head_sec,
+            chapter_cue=chapter_cue,
         )
     except OSError as exc:
         print(f"Could not write chapter log: {exc}", file=sys.stderr)

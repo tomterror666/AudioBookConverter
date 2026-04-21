@@ -6,10 +6,12 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   DeviceEventEmitter,
   NativeModules,
   Platform,
   ScrollView,
+  Switch,
   View,
 } from "react-native";
 import { openFolder } from "react-native-file-panel";
@@ -55,6 +57,7 @@ import {
   locateChapters,
   muxChaptersIntoMergedM4a,
   type AudiobookM4bMetadata,
+  type ChapterCue,
 } from "../../utils/conversionPipeline";
 import { styles } from "./MainPage.styles";
 
@@ -81,10 +84,15 @@ export function MainPage(): React.JSX.Element {
   );
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+  const [chapterCue, setChapterCue] = useState<ChapterCue>("de");
   const [isConverting, setIsConverting] = useState(false);
   const [conversionStep, setConversionStep] = useState(0);
   const [mp3FileTotal, setMp3FileTotal] = useState<number | null>(null);
   const [whisperMp3Done, setWhisperMp3Done] = useState(0);
+  /** Step 2: HF model download vs per-MP3 Whisper scan (spinner vs progress ring). */
+  const [whisperModelPhase, setWhisperModelPhase] = useState<
+    "download" | "scan"
+  >("scan");
   const [mergeProgressDone, setMergeProgressDone] = useState(0);
   const [mergeProgressTotal, setMergeProgressTotal] = useState(0);
   const [dependencyStatuses, setDependencyStatuses] =
@@ -345,6 +353,7 @@ export function MainPage(): React.JSX.Element {
     const sub = DeviceEventEmitter.addListener(
       "WhisperScanProgress",
       (payload: {
+        modelPhase?: string;
         current?: number;
         total?: number;
         kind?: string;
@@ -352,6 +361,15 @@ export function MainPage(): React.JSX.Element {
         chapterTotal?: number;
         chapterMode?: string;
       }) => {
+        const phase = payload?.modelPhase;
+        if (phase === "download") {
+          setWhisperModelPhase("download");
+          return;
+        }
+        if (phase === "ready") {
+          setWhisperModelPhase("scan");
+          return;
+        }
         const k = payload?.kind ?? "";
         const isMerge = k === "merge_encode" || k === "merge_chapters";
         const cur = Number(payload?.current);
@@ -427,7 +445,7 @@ export function MainPage(): React.JSX.Element {
           setBookCoverPreview({ status: "empty" });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (ac.signal.aborted) {
           return;
         }
@@ -560,11 +578,13 @@ export function MainPage(): React.JSX.Element {
         setMp3FileTotal(mp3Count);
         setConversionStep(2);
         setWhisperMp3Done(0);
+        setWhisperModelPhase("scan");
         setProgress(0);
         const chapterMarks = await locateChapters({
           rootDirectory: selectedDirectory!.trim(),
           modelSize: selectedMode!.trim(),
           device: selectedDevice!.trim().toLowerCase(),
+          chapterCue,
         });
         if (
           chapterMarks.usedChapterCache &&
@@ -620,6 +640,7 @@ export function MainPage(): React.JSX.Element {
         setConversionStep(0);
         setMp3FileTotal(null);
         setWhisperMp3Done(0);
+        setWhisperModelPhase("scan");
         setMergeProgressDone(0);
         setMergeProgressTotal(0);
         setProgress(0);
@@ -697,6 +718,47 @@ export function MainPage(): React.JSX.Element {
                     placeholder="cpu"
                   />
                 </View>
+                <View style={styles.chapterCueRow}>
+                  <View style={styles.fieldLabelContainer}>
+                    <Label
+                      title="Language:"
+                      variant={LabelVariant.NormalBold}
+                      align={LabelAlign.Left}
+                    />
+                  </View>
+                  <View style={styles.chapterCueInputWrapper}>
+                    <View style={styles.chapterCueBox}>
+                      <View style={styles.chapterCueControls}>
+                        <Label
+                          title="German"
+                          variant={LabelVariant.Normal}
+                          color={
+                            chapterCue === "de" ? Color.gray900 : Color.gray500
+                          }
+                          align={LabelAlign.Left}
+                        />
+                        <Switch
+                          value={chapterCue === "en"}
+                          onValueChange={v => setChapterCue(v ? "en" : "de")}
+                          trackColor={{
+                            false: Color.gray300,
+                            true: Color.primary,
+                          }}
+                        />
+                        <Label
+                          title="English"
+                          variant={LabelVariant.Normal}
+                          color={
+                            chapterCue === "en"
+                              ? Color.gray900
+                              : Color.gray500
+                          }
+                          align={LabelAlign.Left}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                </View>
                 <View style={styles.startButtonWrapper}>
                   <Button
                     variant={ButtonVariant.Primary}
@@ -720,11 +782,20 @@ export function MainPage(): React.JSX.Element {
                           />
                         </View>
                         <View style={styles.conversionStepListProgress}>
-                          <Progress
-                            size={ProgressSize.Small}
-                            color={Color.primary}
-                            value={conversionStepListCircleValue(step)}
-                          />
+                          {step === 2 &&
+                          conversionStep === 2 &&
+                          whisperModelPhase === "download" ? (
+                            <ActivityIndicator
+                              color={Color.primary}
+                              style={styles.step2DownloadSpinner}
+                            />
+                          ) : (
+                            <Progress
+                              size={ProgressSize.Small}
+                              color={Color.primary}
+                              value={conversionStepListCircleValue(step)}
+                            />
+                          )}
                         </View>
                       </View>
                     ))}

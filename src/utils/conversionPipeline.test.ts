@@ -98,18 +98,40 @@ describe("conversionPipeline", () => {
         "base",
         "cpu",
         "int8_float32",
+        "de",
       );
       expect(result.marks).toHaveLength(1);
       expect(result.marks[0]?.label).toBe("Chapter 1");
       expect(result.usedChapterCache).not.toBe(true);
     });
 
+    it("passes chapterCue en to native whisper", async () => {
+      const whisper = jest.fn(async () => validMarksPayload);
+      mockMacosDeps({
+        detectChaptersWithWhisper: whisper,
+      });
+      await locateChapters({
+        rootDirectory: "/root",
+        modelSize: "base",
+        device: "cpu",
+        chapterCue: "en",
+      });
+      expect(whisper).toHaveBeenCalledWith(
+        "/root",
+        "base",
+        "cpu",
+        "int8_float32",
+        "en",
+      );
+    });
+
     it("uses cached chapter marks when present and skips whisper", async () => {
       const whisper = jest.fn(async () => {
         throw new Error("whisper should not run");
       });
+      const readCache = jest.fn(async () => validMarksPayload);
       mockMacosDeps({
-        readChapterMarksCacheIfPresent: jest.fn(async () => validMarksPayload),
+        readChapterMarksCacheIfPresent: readCache,
         detectChaptersWithWhisper: whisper,
       });
       const result = await locateChapters({
@@ -117,6 +139,7 @@ describe("conversionPipeline", () => {
         modelSize: "base",
         device: "cpu",
       });
+      expect(readCache).toHaveBeenCalledWith("/root", "de");
       expect(whisper).not.toHaveBeenCalled();
       expect(result.usedChapterCache).toBe(true);
       expect(result.marks).toEqual(validMarksPayload.marks);

@@ -28,6 +28,9 @@ async function nativeCountMp3Files(directoryPath: string): Promise<number> {
 
 const WHISPER_COMPUTE_TYPE = "int8_float32" as const;
 
+/** Whisper transcript keyword: German "Kapitel" vs English "Chapter". */
+export type ChapterCue = "de" | "en";
+
 export type ChapterMark = {
   filePath: string;
   startSec: number;
@@ -89,20 +92,24 @@ function parseChapterDetectionResult(raw: unknown): ChapterDetectionResult {
 
 async function nativeReadChapterMarksCacheIfPresent(
   rootDirectory: string,
+  chapterCue: ChapterCue,
 ): Promise<unknown | null> {
   if (Platform.OS !== "macos") {
     return null;
   }
   const mod = NativeModules.DependencyStatus as
     | {
-        readChapterMarksCacheIfPresent?: (root: string) => Promise<unknown>;
+        readChapterMarksCacheIfPresent?: (
+          root: string,
+          cue: string,
+        ) => Promise<unknown>;
       }
     | undefined;
   const fn = mod?.readChapterMarksCacheIfPresent;
   if (typeof fn !== "function") {
     return null;
   }
-  const raw = await fn(rootDirectory);
+  const raw = await fn(rootDirectory, chapterCue);
   if (raw == null) {
     return null;
   }
@@ -114,6 +121,7 @@ async function nativeDetectChaptersWithWhisper(
   modelSize: string,
   device: string,
   computeType: string,
+  chapterCue: ChapterCue,
 ): Promise<ChapterDetectionResult> {
   if (Platform.OS !== "macos") {
     throw new Error(
@@ -127,6 +135,7 @@ async function nativeDetectChaptersWithWhisper(
           ms: string,
           dev: string,
           ct: string,
+          cue: string,
         ) => Promise<unknown>;
       }
     | undefined;
@@ -134,7 +143,13 @@ async function nativeDetectChaptersWithWhisper(
   if (typeof fn !== "function") {
     throw new Error("detectChaptersWithWhisper (native) is not available.");
   }
-  const raw = await fn(rootDirectory, modelSize, device, computeType);
+  const raw = await fn(
+    rootDirectory,
+    modelSize,
+    device,
+    computeType,
+    chapterCue,
+  );
   const parsed = parseChapterDetectionResult(raw);
   return { ...parsed, usedChapterCache: false };
 }
@@ -241,6 +256,8 @@ export type LocateChaptersOptions = {
   rootDirectory: string;
   modelSize: string;
   device: string;
+  /** Match spoken "Kapitel" (de) vs "Chapter" (en). Default `de`. */
+  chapterCue?: ChapterCue;
 };
 
 /**
@@ -259,8 +276,12 @@ export async function locateChapters(
   const root = options.rootDirectory.trim();
   const modelSize = options.modelSize.trim().toLowerCase();
   const device = options.device.trim().toLowerCase();
+  const chapterCue: ChapterCue = options.chapterCue ?? "de";
 
-  const cachedRaw = await nativeReadChapterMarksCacheIfPresent(root);
+  const cachedRaw = await nativeReadChapterMarksCacheIfPresent(
+    root,
+    chapterCue,
+  );
   if (cachedRaw != null) {
     try {
       const parsed = parseChapterDetectionResult(cachedRaw);
@@ -275,6 +296,7 @@ export async function locateChapters(
     modelSize,
     device,
     WHISPER_COMPUTE_TYPE,
+    chapterCue,
   );
 }
 

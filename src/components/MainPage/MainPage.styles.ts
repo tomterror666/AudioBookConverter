@@ -72,6 +72,35 @@ export const styles = StyleSheet.create({
     flex: 1,
     maxWidth: 600,
   },
+  chapterCueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 32,
+  },
+  /** Aligns with `InputField` wrapper (Folder / Mode / Device rows). */
+  chapterCueInputWrapper: {
+    marginLeft: 64,
+    flex: 1,
+    maxWidth: 600,
+  },
+  /** Same shell as `InputField` outline (white box + border). */
+  chapterCueBox: {
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "#CCCCCC",
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    minWidth: 300,
+  },
+  /** Tighter vertical padding than `InputField` so the language row stays compact. */
+  chapterCueControls: {
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   pathInputWrapper: {
     marginLeft: 64,
     flex: 1,
@@ -108,5 +137,10 @@ export const styles = StyleSheet.create({
   },
   conversionStepListProgress: {
     flexShrink: 0,
+  },
+  /** Match `ProgressSize.Small` (16) so step 2 spinner aligns with other steps. */
+  step2DownloadSpinner: {
+    width: 16,
+    height: 16,
   },
 });
