@@ -24,6 +24,8 @@ Before starting the app, make sure these dependencies are available:
 
 For full conversion functionality, create a Python virtual environment in the repository named `.audioBookConverter` and install the required Python packages (for example `faster-whisper`).
 
+**Google Books API key (optional).** The app can look up a book cover for the selected folder name via the Google Books API. You may set `GOOGLE_BOOKS_API_KEY` in a local `.env` file (see `.env.example` in the repository root; copy it to `.env` and add your key). That file is not tracked by git. If no key is set, unauthenticated access still works but with stricter rate limits. Providing a key is only for convenience and is not required to run the rest of the conversion pipeline.
+
 ## Getting Started
 
 ### 1) Install JavaScript dependencies
