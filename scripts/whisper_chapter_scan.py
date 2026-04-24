@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-For each MP3, transcribe only the first --head-seconds (default 45) with ffmpeg + faster-whisper,
-find spoken “Kapitel” or “Chapter” + number (word timestamps). Times refer to the full track (offset 0).
+For each MP3, transcribe only the first --head-seconds (default 45) with ffmpeg + faster-whisper
+to identify the chapter: spoken special labels (Zeittafel, Prolog, Epilog, Prologue, Epilogue) or
+“Kapitel/Chapter” + number. German: *Z* as [s] in ASR (z→s), plus *Levenshtein* for stems like
+*Zeitfafel*; *Kapitel* may be clipped (*Kapitl*) or misheard. **Compound specials** (e.g. *Zeit* + *Tafel* as two ASR words) and matches in the
+**full head transcript** are detected. If **Prolog/Prologue/Epilog** is detected in more than one
+MP3, the **last** file in folder order is kept; duplicate **Zeittafel** keeps the **first**.
+The chapter is placed at the **start of that MP3** (startSec 0) on
+the merged timeline; the transcript only selects the title, not the time within the file.
 JSON to stdout, progress to stderr.
 """
 import argparse
@@ -14,7 +20,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 MAX_PARALLEL_WHISPER_WORKERS = 4
 
@@ -58,8 +64,19 @@ def write_chapter_log(
     chapter_cue: str,
 ) -> None:
     log_path = root / CHAPTER_LOG_FILENAME
+    de = chapter_cue == "de"
+    if de:
+        title = "AudioBookConverter — erkannte Kapitel (Whisper)"
+        count_line = f"Gefundene Kapitelmarkierungen: {len(all_marks)}"
+        empty_line = "(keine Kapitel im Scan)"
+        table_hdr = "— Tabelle (Datei | Kapitel | Sekunden | Timecode) —"
+    else:
+        title = "AudioBookConverter — detected chapters (Whisper)"
+        count_line = f"Chapter markers found: {len(all_marks)}"
+        empty_line = "(no chapters found in scan)"
+        table_hdr = "— Table (file | chapter | seconds | timecode) —"
     lines = [
-        "AudioBookConverter — detected chapters (Whisper)",
+        title,
         f"Project folder: {root}",
         (
             "Generated (UTC): "
@@ -70,12 +87,12 @@ def write_chapter_log(
             f"scan: first {head_seconds:.0f} s per MP3"
         ),
         "",
-        f"Chapter markers found: {len(all_marks)}",
+        count_line,
         "",
     ]
 
     if not all_marks:
-        lines.extend(["(no chapters found in scan)", ""])
+        lines.extend([empty_line, ""])
     else:
         by_file: dict[str, list] = {}
         for m in all_marks:
@@ -95,7 +112,7 @@ def write_chapter_log(
                 lines.append(f"  {label} @ {sec:.3f} s  ({tc})")
             lines.append("")
 
-        lines.append("— Table (file | chapter | seconds | timecode) —")
+        lines.append(table_hdr)
         for m in sorted(
             all_marks,
             key=lambda x: (x.get("filePath", ""), float(x["startSec"])),
@@ -113,7 +130,10 @@ def write_chapter_log(
         lines.append("")
 
     log_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Chapter log: {log_path}", file=sys.stderr, flush=True)
+    if de:
+        print(f"Kapitel-Log: {log_path}", file=sys.stderr, flush=True)
+    else:
+        print(f"Chapter log: {log_path}", file=sys.stderr, flush=True)
 
 
 def iter_mp3_files(root: Path):
@@ -130,10 +150,111 @@ def normalize_word_en(w: str) -> str:
     return re.sub(r"[^\w]", "", w, flags=re.I).lower()
 
 
+def number_chapter_label(num: int, chapter_cue: str) -> str:
+    """Spoken-cue-consistent label for regular numbered chapters in JSON, logs, and mux."""
+    if chapter_cue == "en":
+        return f"Chapter {num}"
+    return f"Kapitel {num}"
+
+
+def de_zs_asr_match_key(s: str) -> str:
+    """
+    /ts/ (letter Z) is often heard and transcribed as [s] (*Seittafel* for *Zeittafel*).
+    Map only **z** → **s** so we align with that ASR; inner *s* in words stays unchanged.
+    Fuzzy *Levenshtein* below catches leftover typos (e.g. *Zeitfafel*).
+    """
+    return s.replace("z", "s")
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Edit distance (insert/delete/subst); small strings only (chapter stems)."""
+    if len(a) < len(b):
+        a, b = b, a
+    la, lb = len(a), len(b)
+    if lb == 0:
+        return la
+    row = list(range(lb + 1))
+    for i in range(1, la + 1):
+        prev = row[0]
+        row[0] = i
+        for j in range(1, lb + 1):
+            cur = min(
+                row[j] + 1,
+                row[j - 1] + 1,
+                prev + (0 if a[i - 1] == b[j - 1] else 1),
+            )
+            prev, row[j] = row[j], cur
+    return row[lb]
+
+
+def _de_stem_fuzzy_eq(candidate: str, stem: str) -> bool:
+    """
+    After z/s and letter normalization, allow small ASR / dialect edits (dropped letters,
+    f/t, etc.) on longer stems.
+    """
+    ca = de_zs_asr_match_key(candidate)
+    st = de_zs_asr_match_key(stem)
+    if ca == st:
+        return True
+    max_len = max(len(ca), len(st))
+    if max_len < 4:
+        return False
+    max_dist = 1 if max_len <= 6 else 2
+    return _levenshtein(ca, st) <= max_dist
+
+
+def _word_matches_kapitel_cue_de(w: str) -> bool:
+    """
+    *Kapitel* often elided in speech/ASR (e.g. *Kapitl*). z→s for dialect/ASR.
+    Require at least 6 characters for fuzzy so *kapit* alone is not a match.
+    """
+    d = de_zs_asr_match_key(normalize_word_de(w))
+    if d == "kapitel" or d == "kapitl":
+        return True
+    if not d.startswith("kapit") or len(d) < 6 or len(d) > 9:
+        return False
+    return _levenshtein(d, "kapitel") <= 2
+
+
+def _word_matches_chapter_cue_en(w: str) -> bool:
+    e = normalize_word_en(w)
+    if e == "chapter":
+        return True
+    if not e.startswith("chap") or len(e) < 5 or len(e) > 9:
+        return False
+    return _levenshtein(e, "chapter") <= 2
+
+
 def word_matches_chapter_cue(w: str, chapter_cue: str) -> bool:
     if chapter_cue == "en":
-        return normalize_word_en(w) == "chapter"
-    return normalize_word_de(w) == "kapitel"
+        return _word_matches_chapter_cue_en(w)
+    return _word_matches_kapitel_cue_de(w)
+
+
+# Spoken special segments (DE/EN); matching word wins over “Kapitel/Chapter N”. Labels are UI/title text.
+SPECIAL_STEM_TO_LABEL: dict[str, str] = {
+    "zeittafel": "Zeittafel",
+    "prolog": "Prolog",
+    "epilog": "Epilog",
+    "prologue": "Prologue",
+    "epilogue": "Epilog",
+}
+# Unique stable numbers for mux/dedup.
+SPECIAL_LABEL_TO_NUMBER: dict[str, int] = {
+    "Zeittafel": -1001,
+    "Prolog": -1002,
+    "Epilog": -1003,
+    "Prologue": -1004,
+}
+
+
+def _special_chapter_label_from_word(w: str) -> str | None:
+    d = de_zs_asr_match_key(normalize_word_de(w))
+    e = de_zs_asr_match_key(normalize_word_en(w))
+    for stem, label in SPECIAL_STEM_TO_LABEL.items():
+        if _de_stem_fuzzy_eq(d, stem) or _de_stem_fuzzy_eq(e, stem):
+            return label
+    return None
 
 
 def first_int_in(w: str):
@@ -154,8 +275,8 @@ def words_from_segments(segments):
 
 def dedupe_consecutive_same_chapter(marks: list) -> list:
     """
-    Sort by file + time; merge consecutive entries with the same file and chapter number
-    (keep the first position).
+    Sort by file + time; drop consecutive duplicates with the same file and chapter number
+    (keep the first; startSec is only used for sort order, typically 0).
     """
     if len(marks) < 2:
         return marks
@@ -175,23 +296,181 @@ def dedupe_consecutive_same_chapter(marks: list) -> list:
     return out
 
 
-def find_chapter_marks_for_file(words, file_path_resolved: str, chapter_cue: str):
-    marks = []
-    for i in range(len(words) - 1):
-        if not word_matches_chapter_cue(words[i].word, chapter_cue):
+SPECIAL_LABEL_PRIORITY: tuple[str, ...] = (
+    "Zeittafel",
+    "Prolog",
+    "Prologue",
+    "Epilog",
+)
+
+NUM_ZEITTAFEL = -1001
+NUM_PROLOG = -1002
+NUM_EPILOG = -1003
+NUM_PROLOGUE = -1004
+
+
+def _letters_token(w: str) -> str:
+    return re.sub(r"[^\wäöüß]", "", w, flags=re.I).lower()
+
+
+def _letters_blob_cumulative_to_segment(
+    segments: list,
+) -> list[tuple[float, str]]:
+    """(segment.start, cumulative letters-blob from file start to end of that segment)."""
+    acc_text = ""
+    out: list[tuple[float, str]] = []
+    for seg in segments:
+        acc_text += getattr(seg, "text", "") or ""
+        out.append(
+            (float(getattr(seg, "start", 0.0)), de_zs_asr_match_key(_letters_token(acc_text)))
+        )
+    return out
+
+
+def _collect_special_candidates(
+    wlist: list, segments: list
+) -> list[tuple[float, str]]:
+    """
+    (speech_time, label) for any special: single token, two-token compound, or substring in head text.
+    """
+    cands: list[tuple[float, str]] = []
+    for wo in wlist:
+        lab = _special_chapter_label_from_word(wo.word)
+        if lab is not None:
+            cands.append((float(wo.start), lab))
+    for i in range(len(wlist) - 1):
+        cat = de_zs_asr_match_key(
+            _letters_token(wlist[i].word) + _letters_token(wlist[i + 1].word)
+        )
+        for stem, lab in SPECIAL_STEM_TO_LABEL.items():
+            if _de_stem_fuzzy_eq(cat, stem):
+                t = min(float(wlist[i].start), float(wlist[i + 1].start))
+                cands.append((t, lab))
+                break
+    for seg_start, blob in _letters_blob_cumulative_to_segment(segments):
+        for stem, lab in SPECIAL_STEM_TO_LABEL.items():
+            if _fuzzy_stem_appears_in_letters_blob(blob, stem):
+                cands.append((seg_start, lab))
+    return cands
+
+
+def _fuzzy_stem_appears_in_letters_blob(blob: str, stem: str) -> bool:
+    """Exact or fuzzy (edit distance) occurrence of *stem* in a long letters-only blob."""
+    sk = de_zs_asr_match_key(stem)
+    if not sk or not blob:
+        return False
+    if sk in blob:
+        return True
+    n, m = len(blob), len(sk)
+    if m < 4 or n < m - 2:
+        return False
+    max_dist = 2 if m >= 8 else 1
+    for wlen in range(max(3, m - 2), min(n, m + 3) + 1):
+        for i in range(0, n - wlen + 1):
+            sub = blob[i : i + wlen]
+            if _levenshtein(sub, sk) <= max_dist:
+                return True
+    return False
+
+
+def _pick_special_label(cands: list[tuple[float, str]]) -> Optional[str]:
+    if not cands:
+        return None
+    t_min = min(t for t, _ in cands)
+    at_min = [lab for t, lab in cands if abs(t - t_min) < 0.15]
+    for pref in SPECIAL_LABEL_PRIORITY:
+        if pref in at_min:
+            return pref
+    return at_min[0]
+
+
+def find_chapter_marks_for_file(
+    words, segments, file_path_resolved: str, chapter_cue: str
+) -> list:
+    """
+    At most one chapter per MP3. Specials: from words, 2-word compounds, and full head text
+    (ASR often splits e.g. Zeittafel). Earliest time wins; ties break by SPECIAL_LABEL_PRIORITY.
+    Otherwise earliest Kapitel/Chapter + number. startSec is always 0 (file start in mux).
+    """
+    wlist = list(words)
+    seglist = list(segments) if segments else []
+    spec_cands = _collect_special_candidates(wlist, seglist)
+    if spec_cands:
+        chosen = _pick_special_label(spec_cands)
+        if chosen is not None:
+            num = SPECIAL_LABEL_TO_NUMBER.get(chosen, -1)
+            return [
+                {
+                    "filePath": file_path_resolved,
+                    "startSec": 0.0,
+                    "number": num,
+                    "label": chosen,
+                }
+            ]
+
+    if len(wlist) < 2:
+        return []
+    best_k: Optional[tuple[float, dict]] = None
+    for i in range(len(wlist) - 1):
+        if not word_matches_chapter_cue(wlist[i].word, chapter_cue):
             continue
-        num = first_int_in(words[i + 1].word)
+        num = first_int_in(wlist[i + 1].word)
         if num is None:
             continue
-        marks.append(
-            {
-                "filePath": file_path_resolved,
-                "startSec": float(words[i].start),
-                "number": num,
-                "label": f"Chapter {num}",
-            }
-        )
-    return marks
+        t = float(wlist[i].start)
+        mark = {
+            "filePath": file_path_resolved,
+            "startSec": 0.0,
+            "number": num,
+            "label": number_chapter_label(num, chapter_cue),
+        }
+        if best_k is None or t < best_k[0]:
+            best_k = (t, mark)
+    if best_k is not None:
+        return [best_k[1]]
+    return []
+
+
+def dedupe_global_specials(
+    marks: list[dict[str, Any]], ordered_resolved_paths: list[str]
+) -> list[dict[str, Any]]:
+    """
+    One Zeittafel: keep the earliest MP3 in folder order. Prolog, Prologue, Epilog: if several
+    files match, keep only the *last* in folder order (reduces a spurious prologue in an intro file).
+    """
+    if not marks or not ordered_resolved_paths:
+        return marks
+    rank: dict[str, int] = {p: i for i, p in enumerate(ordered_resolved_paths)}
+
+    def key_fp(m: dict[str, Any]) -> str:
+        return str(Path(m.get("filePath", "")).resolve())
+
+    by_num: dict[int, list[dict[str, Any]]] = {}
+    for m in marks:
+        n = m.get("number")
+        if n in (NUM_ZEITTAFEL, NUM_PROLOG, NUM_EPILOG, NUM_PROLOGUE):
+            by_num.setdefault(int(n), []).append(m)
+
+    remove_fp: set[str] = set()
+    for n, group in by_num.items():
+        if len(group) < 2:
+            continue
+        ordered = sorted(group, key=lambda m: rank.get(key_fp(m), 10**9))
+        if n == NUM_ZEITTAFEL:
+            for m in ordered[1:]:
+                remove_fp.add(key_fp(m))
+        elif n == NUM_EPILOG:
+            for m in ordered[:-1]:
+                remove_fp.add(key_fp(m))
+    prolog_fam = by_num.get(NUM_PROLOG, []) + by_num.get(NUM_PROLOGUE, [])
+    if len(prolog_fam) > 1:
+        ordered = sorted(prolog_fam, key=lambda m: rank.get(key_fp(m), 10**9))
+        for m in ordered[:-1]:
+            remove_fp.add(key_fp(m))
+
+    if not remove_fp:
+        return marks
+    return [m for m in marks if key_fp(m) not in remove_fp]
 
 
 def extract_head_wav(ffmpeg_bin: str, src: Path, duration_sec: float) -> Path:
@@ -257,9 +536,9 @@ def _marks_for_mp3(
                 pass
 
     words = words_from_segments(segments)
-    if not words:
-        return []
-    return find_chapter_marks_for_file(words, str(mp3.resolve()), chapter_cue)
+    return find_chapter_marks_for_file(
+        words, segments, str(mp3.resolve()), chapter_cue
+    )
 
 
 _worker_model = None
@@ -428,6 +707,8 @@ def main():
             sys.exit(1)
 
     all_marks = dedupe_consecutive_same_chapter(all_marks)
+    ordered = [str(p.resolve()) for p in mp3_list]
+    all_marks = dedupe_global_specials(all_marks, ordered)
 
     try:
         write_chapter_log(
@@ -442,7 +723,11 @@ def main():
         print(f"Could not write chapter log: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    json.dump({"marks": all_marks}, sys.stdout, ensure_ascii=False)
+    json.dump(
+        {"marks": all_marks, "chapterCue": chapter_cue},
+        sys.stdout,
+        ensure_ascii=False,
+    )
     sys.stdout.write("\n")
 
 

@@ -5,6 +5,7 @@ import { ButtonVariant } from "../components/ui/Button";
 import { Label, LabelVariant } from "../components/ui/Label";
 import { Modal, type ModalButtonConfig } from "../components/ui/Modal";
 import { Color } from "../constants";
+import { useUiCopy } from "../UiLocaleContext";
 import { styles } from "./SelectionModal.styles";
 
 const RADIO_PX = 16;
@@ -47,6 +48,7 @@ type SelectionModalProps = {
 export function SelectionModal(props: SelectionModalProps): React.JSX.Element {
   const { visible, headline, content, options, selectedValue, onSelect } =
     props;
+  const u = useUiCopy();
   const fallbackSelection = useMemo(
     () => selectedValue ?? options[0] ?? null,
     [options, selectedValue],
@@ -62,12 +64,12 @@ export function SelectionModal(props: SelectionModalProps): React.JSX.Element {
 
   const buttons: ModalButtonConfig[] = [
     {
-      label: "Cancel",
+      label: u.selection.cancel,
       variant: ButtonVariant.Secondary,
       onPress: () => onSelect(null),
     },
     {
-      label: "Use",
+      label: u.selection.use,
       variant: ButtonVariant.Primary,
       onPress: () => onSelect(selected),
       disabled: selected == null,

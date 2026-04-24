@@ -24,13 +24,8 @@ import { Progress, ProgressSize } from "../ui/Progress";
 import { Button, ButtonVariant } from "../ui/Button";
 import { InputField } from "../ui/InputField";
 import { Label, LabelAlign, LabelVariant } from "../ui/Label";
-import {
-  Color,
-  CONVERSION_STEP_TITLES,
-  DEVICE_OPTIONS,
-  MODE_OPTIONS,
-  Size,
-} from "../../constants";
+import { Color, DEVICE_OPTIONS, MODE_OPTIONS, Size } from "../../constants";
+import { UiLocaleProvider, useUiCopy } from "../../UiLocaleContext";
 import {
   CreateAudiobookM4bModal,
   DetermineChapterPositionsModal,
@@ -84,14 +79,17 @@ type BookCoverPreviewState =
 /** Placeholder width when cover intrinsic size is unknown (typical book cover ratio). */
 const FOLDER_COVER_DEFAULT_ASPECT = 2 / 3;
 
-export function MainPage(): React.JSX.Element {
+function MainPageInner(props: {
+  chapterCue: ChapterCue;
+  setChapterCue: React.Dispatch<React.SetStateAction<ChapterCue>>;
+}): React.JSX.Element {
+  const { chapterCue, setChapterCue } = props;
   const [progress, setProgress] = useState(0);
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(
     null,
   );
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
-  const [chapterCue, setChapterCue] = useState<ChapterCue>("de");
   const [isConverting, setIsConverting] = useState(false);
   const [conversionStep, setConversionStep] = useState(0);
   const [mp3FileTotal, setMp3FileTotal] = useState<number | null>(null);
@@ -148,6 +146,8 @@ export function MainPage(): React.JSX.Element {
     h: number;
   } | null>(null);
 
+  const u = useUiCopy();
+
   const coverUriForFolder =
     bookCoverPreview.status === "ok" ? bookCoverPreview.uri : null;
 
@@ -203,14 +203,17 @@ export function MainPage(): React.JSX.Element {
         const remaining = Math.max(0, chapterLabels.length - shown.length);
         const listPart =
           shown.length > 0 ? `\n\n${shown.map(l => `• ${l}`).join("\n")}` : "";
-        const morePart = remaining > 0 ? `\n… and ${remaining} more` : "";
         setStep2SummaryContent(
-          `Detected ${chapterCount} chapters.${listPart}${morePart}`,
+          u.step2Summary({
+            chapterCount,
+            labelsPreview: listPart,
+            moreCount: remaining,
+          }),
         );
         setStep2SummaryVisible(true);
         step2SummaryResolver.current = resolve;
       }),
-    [],
+    [u],
   );
 
   const resolveStep2Summary = useCallback(() => {
@@ -224,13 +227,11 @@ export function MainPage(): React.JSX.Element {
   const askStep3EncodeSummary = useCallback(
     (encodedPath: string): Promise<void> =>
       new Promise(resolve => {
-        setStep3EncodeSummaryContent(
-          `Step 3 complete.\n\nEncoded M4A (no chapters yet):\n${encodedPath}`,
-        );
+        setStep3EncodeSummaryContent(u.step3Summary(encodedPath));
         setStep3EncodeSummaryVisible(true);
         step3EncodeSummaryResolver.current = resolve;
       }),
-    [],
+    [u],
   );
 
   const resolveStep3EncodeSummary = useCallback(() => {
@@ -244,13 +245,11 @@ export function MainPage(): React.JSX.Element {
   const askStep4MuxSummary = useCallback(
     (mergedPath: string): Promise<void> =>
       new Promise(resolve => {
-        setStep4MuxSummaryContent(
-          `Step 4 complete.\n\nMerged file with chapters:\n${mergedPath}`,
-        );
+        setStep4MuxSummaryContent(u.step4Summary(mergedPath));
         setStep4MuxSummaryVisible(true);
         step4MuxSummaryResolver.current = resolve;
       }),
-    [],
+    [u],
   );
 
   const resolveStep4MuxSummary = useCallback(() => {
@@ -264,13 +263,11 @@ export function MainPage(): React.JSX.Element {
   const showM4bSuccess = useCallback(
     (m4bPath: string): Promise<void> =>
       new Promise(resolve => {
-        setM4bSuccessContent(
-          `Conversion complete.\n\nAudiobook (M4B):\n${m4bPath}`,
-        );
+        setM4bSuccessContent(u.m4bSuccess(m4bPath));
         setM4bSuccessVisible(true);
         m4bSuccessResolver.current = resolve;
       }),
-    [],
+    [u],
   );
 
   const resolveM4bSuccess = useCallback(() => {
@@ -493,23 +490,24 @@ export function MainPage(): React.JSX.Element {
         }
       } else {
         showInfoModal(
-          "Not supported",
-          "The folder picker is only supported on macOS and Windows.",
+          u.errors.notSupported.headline,
+          u.errors.notSupported.body,
         );
       }
     } catch (error) {
       showInfoModal(
-        "Error",
-        "Could not choose folder: " +
-          (error instanceof Error ? error.message : String(error)),
+        u.errors.errorHeadline,
+        u.errors.couldNotChooseFolder(
+          error instanceof Error ? error.message : String(error),
+        ),
       );
     }
   };
 
   const handleModePress = async () => {
     const picked = await askSelection(
-      "Choose mode",
-      "Please choose a model size",
+      u.selection.chooseMode.headline,
+      u.selection.chooseMode.content,
       MODE_OPTIONS,
       selectedMode,
     );
@@ -520,8 +518,8 @@ export function MainPage(): React.JSX.Element {
 
   const handleDevicePress = async () => {
     const picked = await askSelection(
-      "Choose device",
-      "Please choose a compute device",
+      u.selection.chooseDevice.headline,
+      u.selection.chooseDevice.content,
       DEVICE_OPTIONS,
       selectedDevice,
     );
@@ -578,18 +576,20 @@ export function MainPage(): React.JSX.Element {
         selectedDirectory.trim().length > 0
       )
     ) {
-      missing.push("Folder");
+      missing.push(u.missingFieldToken.folder);
     }
     if (!(selectedMode != null && selectedMode.trim().length > 0)) {
-      missing.push("Mode");
+      missing.push(u.missingFieldToken.mode);
     }
     if (!(selectedDevice != null && selectedDevice.trim().length > 0)) {
-      missing.push("Device");
+      missing.push(u.missingFieldToken.device);
     }
     if (missing.length > 0) {
       showInfoModal(
-        "Incomplete",
-        `Please also choose:\n${missing.map(m => `• ${m}`).join("\n")}`,
+        u.errors.incomplete.headline,
+        u.errors.incomplete.body(
+          missing.map(m => `• ${m}`).join("\n"),
+        ),
       );
       return;
     }
@@ -598,9 +598,9 @@ export function MainPage(): React.JSX.Element {
     if (deviceLower === "cuda" && !isCudaDeviceSupportedOnThisPlatform()) {
       const cudaBody =
         Platform.OS === "macos"
-          ? "macOS does not support NVIDIA CUDA. Please choose “cpu”."
-          : "CUDA is not supported on this platform. Please choose “cpu”.";
-      showInfoModal("CUDA unavailable", cudaBody);
+          ? u.errors.cudaUnavailable.mac
+          : u.errors.cudaUnavailable.other;
+      showInfoModal(u.errors.cudaUnavailable.headline, cudaBody);
       return;
     }
 
@@ -674,7 +674,10 @@ export function MainPage(): React.JSX.Element {
         if (isConversionCancelled(e)) {
           return;
         }
-        showInfoModal("Error", e instanceof Error ? e.message : String(e));
+        showInfoModal(
+          u.errors.errorHeadline,
+          e instanceof Error ? e.message : String(e),
+        );
       } finally {
         setConversionStep(0);
         setMp3FileTotal(null);
@@ -755,7 +758,7 @@ export function MainPage(): React.JSX.Element {
                         <View style={styles.folderCoverErrorInner}>
                           <Text
                             style={styles.folderCoverErrorGlyph}
-                            accessibilityLabel="Cover lookup failed">
+                            accessibilityLabel={u.coverAccessibilityFailed}>
                             ?
                           </Text>
                         </View>
@@ -798,7 +801,7 @@ export function MainPage(): React.JSX.Element {
                 <View style={styles.chapterCueRow}>
                   <View style={styles.fieldLabelContainer}>
                     <Label
-                      title="Language:"
+                      title={u.labelChapterCue}
                       variant={LabelVariant.NormalBold}
                       align={LabelAlign.Left}
                     />
@@ -841,7 +844,7 @@ export function MainPage(): React.JSX.Element {
                     variant={ButtonVariant.Primary}
                     disabled={startLooksInactive}
                     onPress={handleStartPress}>
-                    Start
+                    {u.startButton}
                   </Button>
                 </View>
                 <View style={styles.conversionStepsListPanel}>
@@ -850,7 +853,7 @@ export function MainPage(): React.JSX.Element {
                       <View key={step} style={styles.conversionStepListRow}>
                         <View style={styles.conversionStepListLabelWrap}>
                           <Label
-                            title={`${CONVERSION_STEP_TITLES[step]}:`}
+                            title={`${u.conversionStepTitles[step]}:`}
                             variant={LabelVariant.Normal}
                             color={Color.gray700}
                             align={LabelAlign.Left}
@@ -891,21 +894,25 @@ export function MainPage(): React.JSX.Element {
       />
       <DetermineChapterPositionsModal
         visible={step2SummaryVisible}
+        headline={u.step2ModalHeadline}
         content={step2SummaryContent}
         onContinue={resolveStep2Summary}
       />
       <EmbedChaptersInM4aModal
         visible={step3EncodeSummaryVisible}
+        headline={u.step3ModalHeadline}
         content={step3EncodeSummaryContent}
         onContinue={resolveStep3EncodeSummary}
       />
       <EmbedChaptersInM4aModal
         visible={step4MuxSummaryVisible}
+        headline={u.step4ModalHeadline}
         content={step4MuxSummaryContent}
         onContinue={resolveStep4MuxSummary}
       />
       <CreateAudiobookM4bModal
         visible={m4bSuccessVisible}
+        headline={u.m4bSuccessModalHeadline}
         content={m4bSuccessContent}
         onClose={resolveM4bSuccess}
       />
@@ -929,5 +936,14 @@ export function MainPage(): React.JSX.Element {
         onDependencyCheckResult={onDependencyCheckResult}
       />
     </>
+  );
+}
+
+export function MainPage(): React.JSX.Element {
+  const [chapterCue, setChapterCue] = useState<ChapterCue>("de");
+  return (
+    <UiLocaleProvider value={chapterCue}>
+      <MainPageInner chapterCue={chapterCue} setChapterCue={setChapterCue} />
+    </UiLocaleProvider>
   );
 }

@@ -4,6 +4,7 @@ import { DependencyStatusPanel } from "../components/DependencyStatusPanel";
 import { ButtonVariant } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import type { DependencyCheckResult } from "../utils/dependencyStatus";
+import { useUiCopy } from "../UiLocaleContext";
 import { styles } from "./PythonInfoModal.styles";
 
 type PythonInfoModalProps = {
@@ -16,6 +17,7 @@ export function PythonInfoModal(
   props: PythonInfoModalProps,
 ): React.JSX.Element {
   const { visible, onClose, onDependencyCheckResult } = props;
+  const u = useUiCopy();
 
   return (
     <Modal
@@ -24,7 +26,7 @@ export function PythonInfoModal(
       cardStyle={styles.cardWide}
       buttonConfig={[
         {
-          label: "Close",
+          label: u.modals.close,
           variant: ButtonVariant.Secondary,
           onPress: onClose,
         },

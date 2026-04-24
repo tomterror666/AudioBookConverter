@@ -5,6 +5,7 @@ import { Modal } from "../components/ui/Modal";
 
 type CreateAudiobookM4bModalProps = {
   visible: boolean;
+  headline: string;
   content: string;
   onClose: () => void;
 };
@@ -12,11 +13,11 @@ type CreateAudiobookM4bModalProps = {
 export function CreateAudiobookM4bModal(
   props: CreateAudiobookM4bModalProps,
 ): React.JSX.Element {
-  const { visible, content, onClose } = props;
+  const { visible, headline, content, onClose } = props;
   return (
     <Modal
       visible={visible}
-      headline="Create Audiobook (M4B)"
+      headline={headline}
       buttonConfig={[
         { label: "OK", variant: ButtonVariant.Primary, onPress: onClose },
       ]}

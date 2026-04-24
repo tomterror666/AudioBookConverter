@@ -45,7 +45,7 @@ describe("DependencyStatusPanel", () => {
         ffmpeg: "ok" as const,
         fasterWhisper: "ok" as const,
       },
-      venvPathDisplay: "PROJECT_ROOT/.audioBookConverter",
+      venvPathDisplay: "~/.audioBookConverter",
     };
     mockRunDependencyChecks.mockResolvedValue(result);
     const onCheckResult = jest.fn();
@@ -62,8 +62,8 @@ describe("DependencyStatusPanel", () => {
     const texts = tree!.root
       .findAllByType(Text)
       .map(node => node.props.children);
-    expect(texts).toContain("Python Info");
-    expect(texts).toContain("PROJECT_ROOT/.audioBookConverter");
+    expect(texts).toContain("Python-Info");
+    expect(texts).toContain("~/.audioBookConverter");
   });
 
   it("shows install/update actions according to dependency statuses", async () => {
@@ -74,7 +74,7 @@ describe("DependencyStatusPanel", () => {
         ffmpeg: "ok",
         fasterWhisper: "missing",
       },
-      venvPathDisplay: "PROJECT_ROOT/.audioBookConverter",
+      venvPathDisplay: "~/.audioBookConverter",
     });
 
     let tree: ReactTestRenderer;
@@ -86,12 +86,12 @@ describe("DependencyStatusPanel", () => {
     const buttonChildren = tree!.root
       .findAllByType(Button)
       .map(node => node.props.children);
-    expect(buttonChildren.filter((v: string) => v === "Install")).toHaveLength(
-      2,
-    );
-    expect(buttonChildren.filter((v: string) => v === "Update")).toHaveLength(
-      1,
-    );
+    expect(
+      buttonChildren.filter((v: string) => v === "Installieren"),
+    ).toHaveLength(2);
+    expect(
+      buttonChildren.filter((v: string) => v === "Aktualisieren"),
+    ).toHaveLength(1);
   });
 
   it("runs install action and opens feedback modal with log", async () => {
@@ -102,7 +102,7 @@ describe("DependencyStatusPanel", () => {
         ffmpeg: "ok",
         fasterWhisper: "ok",
       },
-      venvPathDisplay: "PROJECT_ROOT/.audioBookConverter",
+      venvPathDisplay: "~/.audioBookConverter",
     });
     mockRunSingleDependencyAction.mockResolvedValue("done log");
 
@@ -114,7 +114,7 @@ describe("DependencyStatusPanel", () => {
 
     const installButton = tree!.root
       .findAllByType(Button)
-      .find(node => node.props.children === "Install");
+      .find(node => node.props.children === "Installieren");
     expect(installButton).toBeTruthy();
 
     await act(async () => {

@@ -6,10 +6,10 @@ const FORM_EDGE_MARGIN = 32;
 /** Space between form column content and the column edge before the status panel (px). */
 const FORM_COLUMN_END_INSET = 16;
 /**
- * Fixed width for the step title column so the longest line (see CONVERSION_STEP_TITLES)
+ * Fixed width for the step title column so the longest localized title (see `uiCopy`)
  * fits on one row and the gap to the progress circle stays ~CONVERSION_STEP_LABEL_GAP.
  */
-const CONVERSION_STEP_LABEL_COLUMN_WIDTH = 360;
+const CONVERSION_STEP_LABEL_COLUMN_WIDTH = 400;
 /** Horizontal space between the end of the title column and the progress circle (px). */
 const CONVERSION_STEP_LABEL_GAP = 16;
 

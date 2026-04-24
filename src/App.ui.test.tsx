@@ -101,20 +101,20 @@ describe("App UI (user-style queries, mocked IO)", () => {
     );
 
     fireEvent.press(screen.getByText("base"));
-    expect(await screen.findByText("Choose mode")).toBeOnTheScreen();
-    fireEvent.press(screen.getByText("Use"));
+    expect(await screen.findByText("Modus wählen")).toBeOnTheScreen();
+    fireEvent.press(screen.getByText("Übernehmen"));
 
     fireEvent.press(screen.getByText("cpu"));
-    expect(await screen.findByText("Choose device")).toBeOnTheScreen();
-    fireEvent.press(screen.getByText("Use"));
+    expect(await screen.findByText("Gerät wählen")).toBeOnTheScreen();
+    fireEvent.press(screen.getByText("Übernehmen"));
 
     await waitFor(() => expect(screen.getByText("Start")).not.toBeDisabled());
     fireEvent.press(screen.getByText("Start"));
 
-    expect(await screen.findByText("MP3 files")).toBeOnTheScreen();
+    expect(await screen.findByText("MP3-Dateien")).toBeOnTheScreen();
     expect(
       screen.getByText(
-        /Found 2 MP3 file\(s\) in the selected folder \(including subfolders\)\./,
+        /Im ausgewählten Ordner wurden 2 MP3-Dateien gefunden \(einschließlich Unterordner\)\./,
       ),
     ).toBeOnTheScreen();
     expect(jest.mocked(countMp3Files)).toHaveBeenCalledWith(

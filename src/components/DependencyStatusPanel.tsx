@@ -4,6 +4,7 @@ import { Button, ButtonSize, ButtonVariant } from "./ui/Button";
 import { Label, LabelVariant } from "./ui/Label";
 import { Modal } from "./ui/Modal";
 import { styles } from "./DependencyStatusPanel.styles";
+import { useUiCopy } from "../UiLocaleContext";
 import {
   DependencyCheckResult,
   DependencyKey,
@@ -40,6 +41,7 @@ export function DependencyStatusPanel(
   const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [feedbackHeadline, setFeedbackHeadline] = useState("");
   const [feedbackContent, setFeedbackContent] = useState("");
+  const u = useUiCopy();
 
   const refresh = useCallback(() => {
     runDependencyChecks().then(({ statuses: next, venvPathDisplay: path }) => {
@@ -59,12 +61,18 @@ export function DependencyStatusPanel(
       const log = await runSingleDependencyAction(key, mode);
       await refresh();
       const preview =
-        log.length > 1400 ? `${log.slice(0, 1400)}…` : log || "(done)";
-      setFeedbackHeadline(mode === "install" ? "Install" : "Update");
+        log.length > 1400
+          ? `${log.slice(0, 1400)}…`
+          : log || u.pythonInfo.donePreview;
+      setFeedbackHeadline(
+        mode === "install"
+          ? u.pythonInfo.feedbackInstall
+          : u.pythonInfo.feedbackUpdate,
+      );
       setFeedbackContent(preview);
       setFeedbackVisible(true);
     } catch (e) {
-      setFeedbackHeadline("Error");
+      setFeedbackHeadline(u.pythonInfo.errorHeadline);
       setFeedbackContent(e instanceof Error ? e.message : String(e));
       setFeedbackVisible(true);
     } finally {
@@ -77,19 +85,22 @@ export function DependencyStatusPanel(
   return (
     <View style={styles.panelOutline} collapsable={false}>
       <View style={styles.panelInner}>
-        <Label title="Python Info" variant={LabelVariant.Header2} />
+        <Label title={u.pythonInfo.header} variant={LabelVariant.Header2} />
 
         <View style={styles.afterTitleGap}>
         <View style={[styles.tableRow, styles.venvTableRow]}>
           <View style={styles.labelColumn}>
-            <Label title="Python environment:" variant={LabelVariant.NormalBold} />
+            <Label
+              title={u.pythonInfo.pythonEnv}
+              variant={LabelVariant.NormalBold}
+            />
           </View>
           <View style={styles.venvPathColumn}>
             <Label
               title={
                 isMacos
-                  ? venvPathDisplay ?? "PROJECT_ROOT/.audioBookConverter"
-                  : "(macOS only)"
+                  ? venvPathDisplay ?? "~/.audioBookConverter"
+                  : u.pythonInfo.macosOnly
               }
               variant={LabelVariant.Normal}
               numberOfLines={1}
@@ -139,7 +150,7 @@ export function DependencyStatusPanel(
                     }
                     isLoading={busy}
                     disabled={busy}>
-                    {showInstall ? "Install" : "Update"}
+                    {showInstall ? u.pythonInfo.install : u.pythonInfo.update}
                   </Button>
                 ) : (
                   <View style={styles.rowButtonPlaceholder} />

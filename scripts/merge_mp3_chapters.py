@@ -305,13 +305,34 @@ def build_chapter_metadata(chapters_ms, total_duration_ms: int) -> str:
 
 
 def _load_marks_list(marks_json_path: Path) -> list:
+    marks, _cue = _load_marks_payload(marks_json_path)
+    return marks
+
+
+def _chapter_cue_for_mux(payload: dict) -> str:
+    c = str(payload.get("chapterCue") or "de").lower()
+    if c not in ("de", "en"):
+        return "de"
+    return c
+
+
+def _load_marks_payload(marks_json_path: Path) -> tuple[list, str]:
     with open(marks_json_path, encoding="utf-8") as f:
         payload = json.load(f)
+    if not isinstance(payload, dict):
+        print("marks JSON must be an object", file=sys.stderr)
+        sys.exit(1)
     marks = payload.get("marks") or []
     if not isinstance(marks, list):
         print("marks must be a list", file=sys.stderr)
         sys.exit(1)
-    return marks
+    return marks, _chapter_cue_for_mux(payload)
+
+
+def _default_label_for_numbered_chapter(n: int, chapter_cue: str) -> str:
+    if chapter_cue == "en":
+        return f"Chapter {n}"
+    return f"Kapitel {n}"
 
 
 def _chapter_plan_from_marks(
@@ -319,6 +340,7 @@ def _chapter_plan_from_marks(
     path_to_index: dict[str, int],
     offsets_sec: list[float],
     nfiles: int,
+    chapter_cue: str,
 ) -> tuple[list[tuple[int, str]], list[float], int, bool]:
     global_chapters: list[tuple[int, str]] = []
     for m in marks:
@@ -335,7 +357,15 @@ def _chapter_plan_from_marks(
         except (KeyError, TypeError, ValueError):
             print(f"Invalid startSec in mark: {m}", file=sys.stderr)
             sys.exit(1)
-        label = str(m.get("label") or f"Chapter {m.get('number', '')}")
+        raw = m.get("label")
+        if raw not in (None, ""):
+            label = str(raw)
+        else:
+            try:
+                num = int(m["number"])
+            except (KeyError, TypeError, ValueError):
+                num = 0
+            label = _default_label_for_numbered_chapter(num, chapter_cue)
         global_start_ms = int(round((offsets_sec[idx] + start_sec) * 1000))
         global_chapters.append((global_start_ms, label))
 
@@ -460,7 +490,7 @@ def run_mux_phase(
     if not encoded_path.is_file():
         print(f"Encoded audio not found: {encoded_path}", file=sys.stderr)
         sys.exit(1)
-    marks = _load_marks_list(marks_json_path)
+    marks, chapter_cue = _load_marks_payload(marks_json_path)
     mp3s = list(iter_mp3_files(root))
     if not mp3s:
         print("No MP3 files found.", file=sys.stderr)
@@ -479,7 +509,9 @@ def run_mux_phase(
     total_sec = acc
     total_ms = max(1, int(round(total_sec * 1000)))
     global_chapters, chapter_starts_sec, chapter_meta_total, chapter_is_mp3_fallback = (
-        _chapter_plan_from_marks(marks, path_to_index, offsets_sec, nfiles)
+        _chapter_plan_from_marks(
+            marks, path_to_index, offsets_sec, nfiles, chapter_cue
+        )
     )
 
     if not global_chapters:
@@ -552,6 +584,8 @@ def run_full_phase(
     ffmpeg: str,
     marks: list,
     out_path: Path,
+    *,
+    chapter_cue: str = "de",
 ) -> None:
     """Single-shot: encode + optional chapter mux (legacy / CLI)."""
     mp3s = list(iter_mp3_files(root))
@@ -573,7 +607,9 @@ def run_full_phase(
     total_sec = acc
     total_ms = max(1, int(round(total_sec * 1000)))
     global_chapters, chapter_starts_sec, chapter_meta_total, chapter_is_mp3_fallback = (
-        _chapter_plan_from_marks(marks, path_to_index, offsets_sec, nfiles)
+        _chapter_plan_from_marks(
+            marks, path_to_index, offsets_sec, nfiles, chapter_cue
+        )
     )
 
     with tempfile.TemporaryDirectory() as td:
@@ -699,8 +735,8 @@ def main():
     if not args.marks_json:
         print("full phase requires --marks-json", file=sys.stderr)
         sys.exit(2)
-    marks = _load_marks_list(Path(args.marks_json))
-    run_full_phase(root, ffmpeg, marks, out_path)
+    marks, chapter_cue = _load_marks_payload(Path(args.marks_json))
+    run_full_phase(root, ffmpeg, marks, out_path, chapter_cue=chapter_cue)
 
 
 if __name__ == "__main__":

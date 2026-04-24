@@ -123,10 +123,3 @@ export const MODE_OPTIONS = [
   "large",
 ] as const;
 export const DEVICE_OPTIONS = ["cpu", "cuda"] as const;
-export const CONVERSION_STEP_TITLES: Record<number, string> = {
-  1: "Count MP3 files",
-  2: "Detect chapter positions",
-  3: "Merge MP3s to single M4A",
-  4: "Embed chapters in M4A",
-  5: "Create audiobook (M4B)",
-};

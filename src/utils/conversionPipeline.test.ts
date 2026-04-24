@@ -27,12 +27,13 @@ function mockMacosDeps(partial: Record<string, unknown>): void {
 }
 
 const validMarksPayload = {
+  chapterCue: "de" as const,
   marks: [
     {
       filePath: "/a/1.mp3",
       startSec: 0,
       number: 1,
-      label: "Chapter 1",
+      label: "Kapitel 1",
     },
   ],
 };
@@ -101,12 +102,24 @@ describe("conversionPipeline", () => {
         "de",
       );
       expect(result.marks).toHaveLength(1);
-      expect(result.marks[0]?.label).toBe("Chapter 1");
+      expect(result.marks[0]?.label).toBe("Kapitel 1");
+      expect(result.chapterCue).toBe("de");
       expect(result.usedChapterCache).not.toBe(true);
     });
 
     it("passes chapterCue en to native whisper", async () => {
-      const whisper = jest.fn(async () => validMarksPayload);
+      const enPayload = {
+        chapterCue: "en" as const,
+        marks: [
+          {
+            filePath: "/a/1.mp3",
+            startSec: 0,
+            number: 1,
+            label: "Chapter 1",
+          },
+        ],
+      };
+      const whisper = jest.fn(async () => enPayload);
       mockMacosDeps({
         detectChaptersWithWhisper: whisper,
       });
@@ -326,9 +339,14 @@ describe("conversionPipeline", () => {
       };
       const path = await muxChaptersIntoMergedM4a("  /root  ", {
         marks: validMarksPayload.marks,
+        chapterCue: "en",
       });
       expect(path).toBe("/out/merged.m4a");
-      expect(mux).toHaveBeenCalledWith("/root", validMarksPayload.marks);
+      expect(mux).toHaveBeenCalledWith(
+        "/root",
+        validMarksPayload.marks,
+        "en",
+      );
     });
 
     it("throws when mux returns empty path", async () => {

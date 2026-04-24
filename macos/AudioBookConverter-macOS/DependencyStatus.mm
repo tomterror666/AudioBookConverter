@@ -337,7 +337,7 @@ static NSString *AUBKM4bOutputPathForProjectFolder(NSString *stdRoot)
 #error AUDIOBOOK_PROJECT_ROOT must be set (Xcode: GCC_PREPROCESSOR_DEFINITIONS, $(SRCROOT)/..)
 #endif
 
-/// Repo-Wurzel: Build-Flag $(SRCROOT)/.. (Ordner „macos“ → Elternverzeichnis). venv: <Repo>/.audioBookConverter
+/// Repo-Wurzel: Build-Flag $(SRCROOT)/.. (Ordner „macos“ → Elternverzeichnis). Python scripts: …/scripts
 static NSString *AppProjectRoot(void)
 {
   return [AUDIOBOOK_PROJECT_ROOT stringByStandardizingPath];
@@ -345,7 +345,37 @@ static NSString *AppProjectRoot(void)
 
 static NSString *AppVenvRoot(void)
 {
-  return [[AppProjectRoot() stringByAppendingPathComponent:@".audioBookConverter"] stringByStandardizingPath];
+  NSString *home = NSHomeDirectory();
+  if (home == nil || home.length == 0) {
+    return [[@"~/.audioBookConverter" stringByExpandingTildeInPath] stringByStandardizingPath];
+  }
+  return [[home stringByAppendingPathComponent:@".audioBookConverter"] stringByStandardizingPath];
+}
+
+/// `Resources/*.py` in release builds, or `…/repo/scripts` when `AUDIOBOOK_PROJECT_ROOT` is valid (local dev).
+static NSString *_Nullable AUBKPathToBundledOrDevPythonScript(NSString *filename)
+{
+  if (filename == nil || filename.length == 0) {
+    return nil;
+  }
+  NSString *base = [filename stringByDeletingPathExtension];
+  NSString *ext = [filename pathExtension];
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSBundle *bundle = [NSBundle mainBundle];
+  NSString *p = [bundle pathForResource:base ofType:ext];
+  if (p.length > 0 && [fm isReadableFileAtPath:p]) {
+    return p;
+  }
+  p = [bundle pathForResource:base ofType:ext inDirectory:@"scripts"];
+  if (p.length > 0 && [fm isReadableFileAtPath:p]) {
+    return p;
+  }
+  NSString *dev = [[[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:filename]
+      stringByStandardizingPath];
+  if ([fm isReadableFileAtPath:dev]) {
+    return dev;
+  }
+  return nil;
 }
 
 /// venvRoot = venv directory (contains bin/python3). nil/empty → system "python3"
@@ -562,7 +592,7 @@ static NSString *_Nullable VenvPythonTokenOrReject(NSFileManager *fm,
     return ShellQuotePath(py);
   }
   reject(@"no_venv",
-         @"No Python in the project venv (.audioBookConverter in the repo). Tap Install for Python first.",
+         @"No Python in ~/.audioBookConverter. Tap Install for Python first.",
          nil);
   return nil;
 }
@@ -591,7 +621,7 @@ static void RunSingleDependency(NSString *key,
         AppendLog(log, @"Create venv", RunShellFull(createCmd));
         if (![fm isExecutableFileAtPath:py3path]) {
           reject(@"python",
-                 @"Could not create the project venv (.audioBookConverter). Is python3 on PATH?",
+                 @"Could not create ~/.audioBookConverter. Is python3 on PATH?",
                  nil);
           return;
         }
@@ -605,7 +635,7 @@ static void RunSingleDependency(NSString *key,
         AppendLog(log, @"Homebrew", @"Not found — please update Python manually.\n");
       }
       AppendLog(log, @"Note",
-                @"After a Python upgrade you may delete the .audioBookConverter folder in the project and run "
+                @"After a Python upgrade you may delete ~/.audioBookConverter and run "
                 @"Install for Python again to recreate the venv.\n");
     } else {
       reject(@"bad_action", @"Unknown action.", nil);
@@ -853,10 +883,9 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   if (!py) {
     return;
   }
-  NSString *script =
-      [[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:@"whisper_chapter_scan.py"];
-  if (![fm isReadableFileAtPath:script]) {
-    reject(@"no_script", @"scripts/whisper_chapter_scan.py not found in the project.", nil);
+  NSString *script = AUBKPathToBundledOrDevPythonScript(@"whisper_chapter_scan.py");
+  if (script == nil) {
+    reject(@"no_script", @"whisper_chapter_scan.py not found in the app bundle or project scripts folder.", nil);
     return;
   }
 
@@ -967,10 +996,9 @@ static void CreateEncodedAudiobookTrackResolved(NSString *rootDir,
     return;
   }
 
-  NSString *mergeScript =
-      [[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:@"merge_mp3_chapters.py"];
-  if (![fm isReadableFileAtPath:mergeScript]) {
-    reject(@"no_script", @"scripts/merge_mp3_chapters.py not found in the project.", nil);
+  NSString *mergeScript = AUBKPathToBundledOrDevPythonScript(@"merge_mp3_chapters.py");
+  if (mergeScript == nil) {
+    reject(@"no_script", @"merge_mp3_chapters.py not found in the app bundle or project scripts folder.", nil);
     return;
   }
 
@@ -1022,6 +1050,7 @@ static void CreateEncodedAudiobookTrackResolved(NSString *rootDir,
 
 static void MuxChaptersIntoMergedM4aResolved(NSString *rootDir,
                                             NSArray *marks,
+                                            NSString *chapterCue,
                                             RCTCallableJSModules *_Nullable jsModulesForProgress,
                                             RCTPromiseResolveBlock resolve,
                                             RCTPromiseRejectBlock reject)
@@ -1051,7 +1080,11 @@ static void MuxChaptersIntoMergedM4aResolved(NSString *rootDir,
   }
 
   NSError *jerr = nil;
-  NSDictionary *payload = @{@"marks" : (marks == nil ? @[] : marks)};
+  NSString *cue = chapterCue.length > 0 ? chapterCue.lowercaseString : @"de";
+  if (![cue isEqualToString:@"de"] && ![cue isEqualToString:@"en"]) {
+    cue = @"de";
+  }
+  NSDictionary *payload = @{@"marks" : (marks == nil ? @[] : marks), @"chapterCue" : cue};
   NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&jerr];
   if (jsonData == nil || jerr != nil) {
     reject(@"json", @"Could not serialize chapter data.", jerr);
@@ -1072,11 +1105,10 @@ static void MuxChaptersIntoMergedM4aResolved(NSString *rootDir,
     return;
   }
 
-  NSString *mergeScript =
-      [[AppProjectRoot() stringByAppendingPathComponent:@"scripts"] stringByAppendingPathComponent:@"merge_mp3_chapters.py"];
-  if (![fm isReadableFileAtPath:mergeScript]) {
+  NSString *mergeScript = AUBKPathToBundledOrDevPythonScript(@"merge_mp3_chapters.py");
+  if (mergeScript == nil) {
     [fm removeItemAtPath:tmpJson error:nil];
-    reject(@"no_script", @"scripts/merge_mp3_chapters.py not found in the project.", nil);
+    reject(@"no_script", @"merge_mp3_chapters.py not found in the app bundle or project scripts folder.", nil);
     return;
   }
 
@@ -1413,6 +1445,7 @@ RCT_REMAP_METHOD(createEncodedAudiobookTrack,
 RCT_REMAP_METHOD(muxChaptersIntoMergedM4a,
                  muxChaptersIntoMergedM4a:(NSString *)rootDirectory
                  marks:(NSArray *)marks
+                 chapterCue:(NSString *)chapterCue
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -1422,7 +1455,7 @@ RCT_REMAP_METHOD(muxChaptersIntoMergedM4a,
   }
   RCTCallableJSModules *progressJS = self.callableJSModules;
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-    MuxChaptersIntoMergedM4aResolved(rootDirectory, marks, progressJS, resolve, reject);
+    MuxChaptersIntoMergedM4aResolved(rootDirectory, marks, chapterCue, progressJS, resolve, reject);
   });
 }
 

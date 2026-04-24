@@ -43,6 +43,8 @@ export const CHAPTER_MARKS_CACHE_BASENAME = "AudiobookConverter_chapters.json";
 
 export type ChapterDetectionResult = {
   marks: ChapterMark[];
+  /** Cue used for labels / mux (`de` = Kapitel, `en` = Chapter). Omitted → `de`. */
+  chapterCue?: ChapterCue;
   /** True when marks were loaded from `CHAPTER_MARKS_CACHE_BASENAME` (Whisper not run). */
   usedChapterCache?: boolean;
 };
@@ -87,7 +89,12 @@ function parseChapterDetectionResult(raw: unknown): ChapterDetectionResult {
       label,
     };
   });
-  return { marks };
+  const r = raw as { chapterCue?: unknown };
+  let chapterCue: ChapterCue = "de";
+  if (r.chapterCue === "en" || r.chapterCue === "de") {
+    chapterCue = r.chapterCue;
+  }
+  return { marks, chapterCue };
 }
 
 async function nativeReadChapterMarksCacheIfPresent(
@@ -183,6 +190,7 @@ async function nativeCreateEncodedAudiobookTrack(
 async function nativeMuxChaptersIntoMergedM4a(
   rootDirectory: string,
   marks: ChapterMark[],
+  chapterCue: ChapterCue,
 ): Promise<string> {
   if (Platform.OS !== "macos") {
     throw new Error(
@@ -194,6 +202,7 @@ async function nativeMuxChaptersIntoMergedM4a(
         muxChaptersIntoMergedM4a?: (
           root: string,
           m: ChapterMark[],
+          cue: string,
         ) => Promise<string>;
       }
     | undefined;
@@ -203,7 +212,7 @@ async function nativeMuxChaptersIntoMergedM4a(
       "muxChaptersIntoMergedM4a (native) is not available.",
     );
   }
-  const out = await fn(rootDirectory, marks);
+  const out = await fn(rootDirectory, marks, chapterCue);
   if (typeof out !== "string" || !out.trim()) {
     throw new Error("Invalid output path from native chapter mux.");
   }
@@ -325,6 +334,7 @@ export async function muxChaptersIntoMergedM4a(
   return nativeMuxChaptersIntoMergedM4a(
     rootDirectory.trim(),
     chapters.marks,
+    chapters.chapterCue ?? "de",
   );
 }
 

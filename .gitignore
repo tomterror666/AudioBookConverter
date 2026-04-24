@@ -58,7 +58,7 @@ yarn-error.log
 # Bundle artifact
 *.jsbundle
 
-# Python venv at repo root (DependencyStatus native module)
+# Legacy: venv was under the repo; the app now uses ~/.audioBookConverter
 .audioBookConverter/
 
 # Cursor — Project Rules sollen im Repo bleiben; andere .cursor-Dateien lokal möglich

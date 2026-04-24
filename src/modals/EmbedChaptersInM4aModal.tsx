@@ -2,9 +2,11 @@ import React from "react";
 import { ButtonVariant } from "../components/ui/Button";
 import { Label, LabelVariant } from "../components/ui/Label";
 import { Modal } from "../components/ui/Modal";
+import { useUiCopy } from "../UiLocaleContext";
 
 type EmbedChaptersInM4aModalProps = {
   visible: boolean;
+  headline: string;
   content: string;
   onContinue: () => void;
 };
@@ -12,14 +14,15 @@ type EmbedChaptersInM4aModalProps = {
 export function EmbedChaptersInM4aModal(
   props: EmbedChaptersInM4aModalProps,
 ): React.JSX.Element {
-  const { visible, content, onContinue } = props;
+  const { visible, headline, content, onContinue } = props;
+  const u = useUiCopy();
   return (
     <Modal
       visible={visible}
-      headline="Embed Chapters in M4A"
+      headline={headline}
       buttonConfig={[
         {
-          label: "Continue",
+          label: u.mp3Modal.continue,
           variant: ButtonVariant.Primary,
           onPress: onContinue,
         },

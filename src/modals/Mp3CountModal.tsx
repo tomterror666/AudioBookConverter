@@ -2,6 +2,7 @@ import React from "react";
 import { ButtonVariant } from "../components/ui/Button";
 import { Label, LabelVariant } from "../components/ui/Label";
 import { Modal } from "../components/ui/Modal";
+import { useUiCopy } from "../UiLocaleContext";
 
 type Mp3CountModalProps = {
   visible: boolean;
@@ -12,26 +13,27 @@ type Mp3CountModalProps = {
 
 export function Mp3CountModal(props: Mp3CountModalProps): React.JSX.Element {
   const { visible, mp3Count, onContinue, onCancel } = props;
+  const u = useUiCopy();
 
   return (
     <Modal
       visible={visible}
-      headline="MP3 files"
+      headline={u.mp3Modal.headline}
       buttonConfig={[
         {
-          label: "Cancel",
+          label: u.mp3Modal.cancel,
           variant: ButtonVariant.Secondary,
           onPress: onCancel,
         },
         {
-          label: "Continue",
+          label: u.mp3Modal.continue,
           variant: ButtonVariant.Primary,
           onPress: onContinue,
         },
       ]}
       onRequestClose={onCancel}>
       <Label
-        title={`Found ${mp3Count ?? 0} MP3 file(s) in the selected folder (including subfolders).`}
+        title={u.mp3Modal.fileLine(mp3Count ?? 0)}
         variant={LabelVariant.Normal}
       />
     </Modal>

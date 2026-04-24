@@ -62,7 +62,7 @@ describe("dependencyStatus utils", () => {
         pip: "wrong_version",
         ffmpeg: "unexpected",
         fasterWhisper: "missing",
-        venvRoot: "/Users/me/proj/.audioBookConverter/",
+        venvRoot: "/Users/me/.audioBookConverter/",
       }),
     };
 
@@ -73,7 +73,7 @@ describe("dependencyStatus utils", () => {
       ffmpeg: "missing",
       fasterWhisper: "missing",
     });
-    expect(result.venvPathDisplay).toBe("PROJECT_ROOT/.audioBookConverter");
+    expect(result.venvPathDisplay).toBe("~/.audioBookConverter");
   });
 
   it("runDependencyChecks falls back to missing on check errors", async () => {
@@ -91,7 +91,7 @@ describe("dependencyStatus utils", () => {
       ffmpeg: "missing",
       fasterWhisper: "missing",
     });
-    expect(result.venvPathDisplay).toBe("PROJECT_ROOT/.audioBookConverter");
+    expect(result.venvPathDisplay).toBe("~/.audioBookConverter");
   });
 
   it("runSingleDependencyAction returns native log on macos", async () => {
@@ -125,10 +125,10 @@ describe("dependencyStatus utils", () => {
       }),
     };
     const result = await runDependencyChecks();
-    expect(result.venvPathDisplay).toBe("PROJECT_ROOT/.audioBookConverter");
+    expect(result.venvPathDisplay).toBe("~/.audioBookConverter");
   });
 
-  it("runDependencyChecks keeps non-project venv path for display", async () => {
+  it("runDependencyChecks keeps custom venv path for display", async () => {
     setPlatform("macos");
     (NativeModules as Record<string, unknown>).DependencyStatus = {
       checkAll: async () => ({
@@ -147,7 +147,7 @@ describe("dependencyStatus utils", () => {
     setPlatform("macos");
     (NativeModules as Record<string, unknown>).DependencyStatus = {};
     const result = await runDependencyChecks();
-    expect(result.venvPathDisplay).toBe("PROJECT_ROOT/.audioBookConverter");
+    expect(result.venvPathDisplay).toBe("~/.audioBookConverter");
   });
 
   it("runSingleDependencyAction throws when native action missing", async () => {

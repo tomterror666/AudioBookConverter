@@ -26,4 +26,4 @@ alwaysApply: false
 
 ## Pfade
 
-`AUDIOBOOK_PROJECT_ROOT` / `AppProjectRoot()` → Repo-Wurzel; Skripte: `scripts/…`. ffmpeg: `FfmpegExecutablePath()` (Homebrew + PATH-Export).
+`AUDIOBOOK_PROJECT_ROOT` / `AppProjectRoot()` → Repo-Wurzel; **Skripte:** `AUBKPathToBundledOrDevPythonScript(…)` zuerst **`[NSBundle mainBundle] …/whisper_chapter_scan.py` / `merge_mp3_chapters.py`** (Copy Bundle Resources aus `../scripts`), sonst **`<AppProjectRoot>/scripts/…`**. Venv: **`~/.audioBookConverter`**. ffmpeg: `FfmpegExecutablePath()`.

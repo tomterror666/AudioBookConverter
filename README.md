@@ -11,6 +11,8 @@ The app is built with React Native for macOS and includes a conversion pipeline 
 
 This project is currently focused on **macOS**.
 
+The conversion Python entry points (`whisper_chapter_scan.py`, `merge_mp3_chapters.py` under `scripts/` in the repo) are **included in the app bundle** when you build the macOS target, so a **Release** app runs on any machine even without a copy of the repository. The native code also falls back to the `scripts/` folder next to a local checkout when `AUDIOBOOK_PROJECT_ROOT` is valid (typical when developing from the repo).
+
 ## What You Need
 
 Before starting the app, make sure these dependencies are available:
@@ -22,7 +24,7 @@ Before starting the app, make sure these dependencies are available:
 - `ffmpeg` and `ffprobe` in your PATH
 - Python 3
 
-For full conversion functionality, create a Python virtual environment in the repository named `.audioBookConverter` and install the required Python packages (for example `faster-whisper`).
+For full conversion functionality, create a Python virtual environment at **`~/.audioBookConverter`** (in your home directory) and install the required Python packages (for example `faster-whisper`). The app uses this path for all builds; you can also use **Install** in the in-app Python dependency panel to create it.
 
 **Google Books API key (optional).** The app can look up a book cover for the selected folder name via the Google Books API. You may set `GOOGLE_BOOKS_API_KEY` in a local `.env` file (see `.env.example` in the repository root; copy it to `.env` and add your key). That file is not tracked by git. If no key is set, unauthenticated access still works but with stricter rate limits. Providing a key is only for convenience and is not required to run the rest of the conversion pipeline.
 
@@ -74,4 +76,5 @@ Expected output files in your selected project/output folder:
 
 - If native build errors appear, run `pod install` again in `macos/`.
 - If Xcode build cache causes issues, use **Product -> Clean Build Folder**.
-- If dependency checks fail in the app, verify `ffmpeg`, Python, and the `.audioBookConverter` environment.
+- If dependency checks fail in the app, verify `ffmpeg`, Python, and the `~/.audioBookConverter` venv.
+- If you previously used a `.audioBookConverter` folder **inside a clone of this repository**, move it to your home directory as `~/.audioBookConverter` (or remove it and use **Install** in the app’s Python panel to recreate the venv there).

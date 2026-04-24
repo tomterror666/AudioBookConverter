@@ -6,6 +6,6 @@ alwaysApply: true
 # AudioBookConverter — Kern
 
 - **Native Fokus:** Die Konvertierungs-Pipeline ist unter **macOS** über `macos/AudioBookConverter-macOS/DependencyStatus.mm` angebunden; **Windows/Linux** haben dieselben Bridge-Methoden nicht vollständig — Skripte unter `scripts/` sind portierbar.
-- **Venv:** Python-Projekt-venv liegt im Repo als **`.audioBookConverter`** (wird nicht committet). UI: `DependencyStatusPanel` / `NativeModules.DependencyStatus`.
+- **Venv:** Python-venv under **`~/.audioBookConverter`** (User-Home, nicht im Repo). UI: `DependencyStatusPanel` / `NativeModules.DependencyStatus`.
 - **Änderungen:** Nur das anfassen, was die Aufgabe braucht; keine mitgelieferten Refactors oder neue Markdown-Dateien ohne explizite Nutzeranfrage.
 - **Pipeline:** Ablauf und Typen in `src/utils/conversionPipeline.ts`; UI in `App.tsx`; Abhängigkeits-LEDs in `src/utils/dependencyStatus.ts` / `DependencyStatusPanel.tsx`.

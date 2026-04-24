@@ -21,7 +21,7 @@ Diese Datei ergänzt das Repo für **neue Maschinen** und **neue Chat-Sessions**
 | **Cursor User Rules** | Cursor Settings → Rules | Export / manuell kopieren. |
 | **Cursor Skills** | `~/.cursor/skills-cursor/` (o. ä.) | Ordner auf neuen Rechner kopieren oder Skills neu anlegen. |
 | **Chat-Verlauf** | Cursor Cloud / lokal | **Geht nicht als „Repo“-Export** – wichtige Entscheidungen in Commits, Issues oder hier in `docs/` festhalten. |
-| **Python venv** | `<Repo>/.audioBookConverter` | **Nicht committen**; auf neuem Rechner venv neu anlegen und Pakete wie in der App (`faster-whisper`, etc.) installieren. |
+| **Python venv** | `~/.audioBookConverter` (Home) | **Nicht committen**; venv pro Nutzer in der Home; Pakete wie in der App (`faster-whisper`, etc.) installieren. |
 
 ## Plattformen
 
@@ -32,7 +32,7 @@ Diese Datei ergänzt das Repo für **neue Maschinen** und **neue Chat-Sessions**
 
 1. Repo klonen, `npm install`.
 2. **ffmpeg** installieren und im PATH (GUI-Apps unter macOS: oft Homebrew-Pfade, siehe `FfmpegExecutablePath` in `DependencyStatus.mm`).
-3. **Python 3** + venv **`.audioBookConverter`** im Repo anlegen; `faster-whisper` wie im Abhängigkeits-Panel.
+3. **Python 3** + venv **`~/.audioBookConverter`**, `faster-whisper` wie im Abhängigkeits-Panel.
 4. RN-Ziel plattformabhängig bauen (z. B. macOS-Schema unter Xcode).
 5. Cursor öffnen – **Project Rules** aus `.cursor/rules/` werden geladen.
 

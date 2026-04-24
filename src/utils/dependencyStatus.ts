@@ -28,21 +28,20 @@ export function allDependencyLedsGreen(
 export type DependencyCheckResult = {
   statuses: DependencyStatuses;
   /**
-   * Python info row only: venv path with leading part shown as PROJECT_ROOT.
-   * Full paths stay in the native module / logs only.
+   * Python info row: venv path for display (standard location shown as `~/.audioBookConverter`).
    */
   venvPathDisplay: string | null;
 };
 
+const VENV_DISPLAY = "~/.audioBookConverter";
 const VENV_LEAF = "/.audioBookConverter";
 
 /**
- * Python info display only. Independent of Bridge `projectRoot` (avoids showing full paths);
- * fixed venv: …/.audioBookConverter.
+ * Python info display. Native venv is always ~/.audioBookConverter; show that form for matching paths.
  */
 function venvPathForPythonInfoDisplay(venvRoot: string | null): string {
   if (!venvRoot) {
-    return `PROJECT_ROOT${VENV_LEAF}`;
+    return VENV_DISPLAY;
   }
   const normalized = venvRoot.replace(/\/+$/, "");
   if (
@@ -50,7 +49,7 @@ function venvPathForPythonInfoDisplay(venvRoot: string | null): string {
     normalized === ".audioBookConverter" ||
     /[/\\]\.audioBookConverter$/i.test(normalized)
   ) {
-    return `PROJECT_ROOT${VENV_LEAF}`;
+    return VENV_DISPLAY;
   }
   return venvRoot;
 }
@@ -69,7 +68,7 @@ function normalizeStatus(v: unknown): DependencyLedStatus {
   return "missing";
 }
 
-/** Python venv lives at <project root>/.audioBookConverter (macOS native; see Xcode SRCROOT). */
+/** Python venv lives at ~/.audioBookConverter (macOS native, user home). */
 export async function runDependencyChecks(): Promise<DependencyCheckResult> {
   if (Platform.OS !== "macos") {
     return { statuses: DEFAULT_MISSING, venvPathDisplay: null };
