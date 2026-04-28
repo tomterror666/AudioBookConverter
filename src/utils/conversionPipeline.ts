@@ -26,7 +26,7 @@ async function nativeCountMp3Files(directoryPath: string): Promise<number> {
   return typeof n === "number" ? n : Number(n);
 }
 
-const WHISPER_COMPUTE_TYPE = "int8_float32" as const;
+const DEFAULT_WHISPER_COMPUTE_TYPE = "int8_float32" as const;
 
 /** Whisper transcript keyword: German "Kapitel" vs English "Chapter". */
 export type ChapterCue = "de" | "en";
@@ -40,6 +40,10 @@ export type ChapterMark = {
 
 /** Written next to MP3s after a successful Whisper run; reused to skip re-scanning. */
 export const CHAPTER_MARKS_CACHE_BASENAME = "AudiobookConverter_chapters.json";
+
+/** Per-MP3 Whisper transcript logs live under this folder inside the project directory. */
+export const LISTEN_LOGS_DIRECTORY_BASENAME =
+  "AudiobookConverter_listen_logs" as const;
 
 export type ChapterDetectionResult = {
   marks: ChapterMark[];
@@ -123,12 +127,33 @@ async function nativeReadChapterMarksCacheIfPresent(
   return raw;
 }
 
+async function nativeClearListenLogsDirectory(
+  rootDirectory: string,
+): Promise<void> {
+  if (Platform.OS !== "macos") {
+    throw new Error(
+      "Listen log cleanup is only implemented on macOS.",
+    );
+  }
+  const mod = NativeModules.DependencyStatus as
+    | {
+        clearListenLogsDirectory?: (root: string) => Promise<unknown>;
+      }
+    | undefined;
+  const fn = mod?.clearListenLogsDirectory;
+  if (typeof fn !== "function") {
+    throw new Error("clearListenLogsDirectory (native) is not available.");
+  }
+  await fn(rootDirectory);
+}
+
 async function nativeDetectChaptersWithWhisper(
   rootDirectory: string,
   modelSize: string,
   device: string,
   computeType: string,
   chapterCue: ChapterCue,
+  writeListenLogs: boolean,
 ): Promise<ChapterDetectionResult> {
   if (Platform.OS !== "macos") {
     throw new Error(
@@ -143,6 +168,7 @@ async function nativeDetectChaptersWithWhisper(
           dev: string,
           ct: string,
           cue: string,
+          writeListenLogs: boolean,
         ) => Promise<unknown>;
       }
     | undefined;
@@ -156,6 +182,7 @@ async function nativeDetectChaptersWithWhisper(
     device,
     computeType,
     chapterCue,
+    writeListenLogs,
   );
   const parsed = parseChapterDetectionResult(raw);
   return { ...parsed, usedChapterCache: false };
@@ -265,14 +292,21 @@ export type LocateChaptersOptions = {
   rootDirectory: string;
   modelSize: string;
   device: string;
+  /** faster-whisper compute type (e.g. `int8_float32`). Default matches native default. */
+  computeType?: string;
   /** Match spoken "Kapitel" (de) vs "Chapter" (en). Default `de`. */
   chapterCue?: ChapterCue;
+  /**
+   * When true, Whisper writes one `.listen.txt` per MP3 under
+   * `AudiobookConverter_listen_logs` in the project folder (recognized words / transcript).
+   */
+  writeListenLogs?: boolean;
 };
 
 /**
  * 2. Chapter marks: load `AudiobookConverter_chapters.json` in the project folder when valid
  * (same shape as Whisper output, all file paths still on disk); otherwise transcribe the first
- * ~45 s per MP3 (ffmpeg + faster-whisper). Marks feed step 4 (mux).
+ * ~45 s per MP3 after the first (~60 s on first MP3 only; ffmpeg + faster-whisper). Marks feed step 4 (mux).
  */
 export async function locateChapters(
   options: LocateChaptersOptions,
@@ -285,7 +319,13 @@ export async function locateChapters(
   const root = options.rootDirectory.trim();
   const modelSize = options.modelSize.trim().toLowerCase();
   const device = options.device.trim().toLowerCase();
+  const computeType =
+    options.computeType?.trim().toLowerCase() ?? DEFAULT_WHISPER_COMPUTE_TYPE;
   const chapterCue: ChapterCue = options.chapterCue ?? "de";
+
+  if (options.writeListenLogs === true) {
+    await nativeClearListenLogsDirectory(root);
+  }
 
   const cachedRaw = await nativeReadChapterMarksCacheIfPresent(
     root,
@@ -304,8 +344,9 @@ export async function locateChapters(
     root,
     modelSize,
     device,
-    WHISPER_COMPUTE_TYPE,
+    computeType,
     chapterCue,
+    options.writeListenLogs === true,
   );
 }
 

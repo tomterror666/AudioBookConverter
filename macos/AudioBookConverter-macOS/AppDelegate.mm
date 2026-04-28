@@ -25,7 +25,8 @@ static BOOL AUBKHasInstalledPythonInfoMenu = NO;
 }
 
 static const CGFloat kAUBKInitialContentWidth = 850;
-static const CGFloat kAUBKInitialContentHeight = 780;
+/** Tall enough for main form + conversion steps list + `mainScrollContent` bottom inset (48 pt). */
+static const CGFloat kAUBKInitialContentHeight = 960;
 
 - (void)loadReactNativeWindow:(NSDictionary *)launchOptions
 {

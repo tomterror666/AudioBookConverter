@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-For each MP3, transcribe only the first --head-seconds (default 45) with ffmpeg + faster-whisper
+For each MP3, transcribe the first --head-seconds-first seconds (default 60) for the **first**
+MP3 in folder order only; all others use --head-seconds (default 45). ffmpeg + faster-whisper
 to identify the chapter: spoken special labels (Zeittafel, Prolog, Epilog, Prologue, Epilogue) or
-“Kapitel/Chapter” + number. German: *Z* as [s] in ASR (z→s), plus *Levenshtein* for stems like
+“Kapitel/Chapter” + number (Arabic or Roman: III → 3). German: *Z* as [s] in ASR (z→s), plus *Levenshtein* for stems like
 *Zeitfafel*; *Kapitel* may be clipped (*Kapitl*) or misheard. **Compound specials** (e.g. *Zeit* + *Tafel* as two ASR words) and matches in the
 **full head transcript** are detected. If **Prolog/Prologue/Epilog** is detected in more than one
 MP3, the **last** file in folder order is kept; duplicate **Zeittafel** keeps the **first**.
@@ -25,7 +26,9 @@ from typing import Any, Optional, Tuple
 MAX_PARALLEL_WHISPER_WORKERS = 4
 
 HEAD_SECONDS_DEFAULT = 45
+HEAD_SECONDS_FIRST_DEFAULT = 60
 CHAPTER_LOG_FILENAME = "AudiobookConverter_kapitel.log"
+LISTEN_LOG_SUBDIR_NAME = "AudiobookConverter_listen_logs"
 
 
 def whisper_model_is_cached_locally(model_size: str) -> bool:
@@ -60,7 +63,8 @@ def write_chapter_log(
     *,
     model_size: str,
     device: str,
-    head_seconds: float,
+    head_seconds_first: float,
+    head_seconds_rest: float,
     chapter_cue: str,
 ) -> None:
     log_path = root / CHAPTER_LOG_FILENAME
@@ -83,8 +87,17 @@ def write_chapter_log(
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
         ),
         (
-            f"Model: {model_size}, device: {device}, chapter cue: {chapter_cue}, "
-            f"scan: first {head_seconds:.0f} s per MP3"
+            (
+                f"Modell: {model_size}, Gerät: {device}, chapter cue: {chapter_cue}, "
+                f"Scan: erste MP3 {head_seconds_first:.0f} s, weitere "
+                f"{head_seconds_rest:.0f} s"
+            )
+            if de
+            else (
+                f"Model: {model_size}, device: {device}, chapter cue: {chapter_cue}, "
+                f"scan: first MP3 {head_seconds_first:.0f} s, others "
+                f"{head_seconds_rest:.0f} s"
+            )
         ),
         "",
         count_line,
@@ -134,6 +147,78 @@ def write_chapter_log(
         print(f"Kapitel-Log: {log_path}", file=sys.stderr, flush=True)
     else:
         print(f"Chapter log: {log_path}", file=sys.stderr, flush=True)
+
+
+def listen_log_path_for_mp3(listen_log_dir: Path, mp3: Path, root: Path) -> Path:
+    """Stable filename under listen_log_dir from project-relative MP3 path."""
+    try:
+        rel = mp3.resolve().relative_to(root.resolve())
+    except ValueError:
+        rel = Path(mp3.name)
+    safe = str(rel).replace("/", "__").replace("\\", "__")
+    return listen_log_dir / f"{safe}.listen.txt"
+
+
+def write_listen_log_for_mp3(
+    listen_log_dir: Path,
+    root: Path,
+    mp3: Path,
+    segments: list,
+    *,
+    language: str,
+    head_sec: float,
+    chapter_cue: str,
+    de: bool,
+) -> None:
+    """One text file per scanned MP3: recognized words with timestamps (first head_sec only)."""
+    listen_log_dir.mkdir(parents=True, exist_ok=True)
+    out_path = listen_log_path_for_mp3(listen_log_dir, mp3, root)
+    title = (
+        "AudioBookConverter — Erkanntes Transkript (Whisper, Kopf)"
+        if de
+        else "AudioBookConverter — recognized transcript (Whisper head)"
+    )
+    words_hdr = "Wörter (Zeit | Text):" if de else "Words (time | text):"
+    seg_hdr = "Segmente:" if de else "Segments:"
+    lines = [
+        title,
+        f"Projektordner: {root}" if de else f"Project folder: {root}",
+        f"MP3: {mp3}",
+        (
+            "Erzeugt (UTC): "
+            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        ),
+        f"Sprache: {language}, chapter cue: {chapter_cue}, Kopf: erste {head_sec:.0f} s"
+        if de
+        else f"Language: {language}, chapter cue: {chapter_cue}, head: first {head_sec:.0f} s",
+        "",
+        words_hdr,
+    ]
+    any_words = False
+    for seg in segments:
+        ws = getattr(seg, "words", None) or []
+        for w in ws:
+            any_words = True
+            wt = getattr(w, "word", "") or ""
+            start = float(getattr(w, "start", 0.0))
+            end = float(getattr(w, "end", start))
+            lines.append(f"{start:.3f}–{end:.3f}\t{wt}".rstrip())
+    if not any_words:
+        fallback = (
+            "(Keine Wort-Zeitstempel — Fallback auf Segmenttext.)"
+            if de
+            else "(No word timestamps — falling back to segment text.)"
+        )
+        lines.append(fallback)
+        lines.append("")
+        lines.append(seg_hdr)
+        for seg in segments:
+            t0 = float(getattr(seg, "start", 0.0))
+            t1 = float(getattr(seg, "end", t0))
+            txt = (getattr(seg, "text", "") or "").strip()
+            lines.append(f"{t0:.3f}–{t1:.3f}\t{txt}".rstrip())
+    lines.append("")
+    out_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def iter_mp3_files(root: Path):
@@ -262,6 +347,46 @@ def first_int_in(w: str):
     if m:
         return int(m.group(0))
     return None
+
+
+# Classical roman numerals (Großbuchstaben I–M); passt zu Hörbuch-Kapiteln I … ~CM.
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+_ROMAN_VALID_RE = re.compile(
+    r"^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$"
+)
+
+
+def _roman_token_to_int(token: str) -> Optional[int]:
+    """If *token* is a roman numeral (z. B. III, XIV), return its integer value; else None."""
+    raw = "".join(c for c in token.upper() if c in _ROMAN_VALUES)
+    if not raw:
+        return None
+    if not _ROMAN_VALID_RE.match(raw):
+        return None
+    vals = _ROMAN_VALUES
+    i = 0
+    total = 0
+    while i < len(raw):
+        if i + 1 < len(raw) and vals[raw[i]] < vals[raw[i + 1]]:
+            total += vals[raw[i + 1]] - vals[raw[i]]
+            i += 2
+        else:
+            total += vals[raw[i]]
+            i += 1
+    if total < 1 or total > 3999:
+        return None
+    return total
+
+
+def chapter_number_after_cue(word: str) -> Optional[int]:
+    """
+    Arabic digits (z. B. „12“, „3.“) oder römische Zahl im nächsten Wort (z. B. „III“, „XIV“).
+    """
+    w = word.strip()
+    n = first_int_in(w)
+    if n is not None:
+        return n
+    return _roman_token_to_int(w)
 
 
 def words_from_segments(segments):
@@ -414,7 +539,7 @@ def find_chapter_marks_for_file(
     for i in range(len(wlist) - 1):
         if not word_matches_chapter_cue(wlist[i].word, chapter_cue):
             continue
-        num = first_int_in(wlist[i + 1].word)
+        num = chapter_number_after_cue(wlist[i + 1].word)
         if num is None:
             continue
         t = float(wlist[i].start)
@@ -517,8 +642,12 @@ def _marks_for_mp3(
     ffmpeg_bin: str,
     language: str,
     chapter_cue: str,
+    *,
+    root: Optional[Path] = None,
+    listen_log_dir: Optional[Path] = None,
 ) -> list:
     wav: Optional[Path] = None
+    segments: list = []
     try:
         wav = extract_head_wav(ffmpeg_bin, mp3, head_sec)
         segments = transcribe_file(model, wav, language)
@@ -534,6 +663,22 @@ def _marks_for_mp3(
                 wav.unlink()
             except OSError:
                 pass
+
+    if listen_log_dir is not None and root is not None:
+        try:
+            write_listen_log_for_mp3(
+                listen_log_dir,
+                root,
+                mp3,
+                segments,
+                language=language,
+                head_sec=head_sec,
+                chapter_cue=chapter_cue,
+                de=chapter_cue == "de",
+            )
+        except OSError as exc:
+            print(f"{mp3}: listen log {exc}", file=sys.stderr)
+            raise
 
     words = words_from_segments(segments)
     return find_chapter_marks_for_file(
@@ -555,14 +700,37 @@ def _init_whisper_pool(model_size: str, device: str, compute_type: str) -> None:
     )
 
 
-def _whisper_pool_job(payload: Tuple[str, float, str, str, str]) -> list:
-    mp3_str, head_sec, ffmpeg_bin, language, chapter_cue = payload
+def _whisper_pool_job(
+    payload: Tuple[str, float, str, str, str, str, str],
+) -> list:
+    (
+        mp3_str,
+        head_sec,
+        ffmpeg_bin,
+        language,
+        chapter_cue,
+        root_str,
+        listen_log_dir_str,
+    ) = payload
     mp3 = Path(mp3_str)
+    root = Path(root_str).expanduser().resolve()
+    listen_dir: Optional[Path] = (
+        Path(listen_log_dir_str).expanduser().resolve()
+        if listen_log_dir_str
+        else None
+    )
     global _worker_model
     if _worker_model is None:
         raise RuntimeError("Whisper worker pool not initialized")
     return _marks_for_mp3(
-        _worker_model, mp3, head_sec, ffmpeg_bin, language, chapter_cue
+        _worker_model,
+        mp3,
+        head_sec,
+        ffmpeg_bin,
+        language,
+        chapter_cue,
+        root=root,
+        listen_log_dir=listen_dir,
     )
 
 
@@ -582,13 +750,34 @@ def main():
         "--head-seconds",
         type=float,
         default=HEAD_SECONDS_DEFAULT,
-        help=f"Transcribe only the first N seconds (default: {HEAD_SECONDS_DEFAULT})",
+        help=(
+            "Seconds of audio to transcribe per MP3 after the first "
+            f"(default: {HEAD_SECONDS_DEFAULT})"
+        ),
+    )
+    parser.add_argument(
+        "--head-seconds-first",
+        type=float,
+        default=HEAD_SECONDS_FIRST_DEFAULT,
+        help=(
+            "Seconds for the first MP3 in folder order only "
+            f"(default: {HEAD_SECONDS_FIRST_DEFAULT})"
+        ),
     )
     parser.add_argument(
         "--chapter-cue",
         choices=("de", "en"),
         default="de",
         help='Spoken cue before chapter number: "de" = Kapitel, "en" = Chapter',
+    )
+    parser.add_argument(
+        "--listen-log-dir",
+        default="",
+        metavar="DIR",
+        help=(
+            "If set, write one .listen.txt per MP3 with recognized words "
+            f"(under this folder; suggested: …/{LISTEN_LOG_SUBDIR_NAME})."
+        ),
     )
     args = parser.parse_args()
     chapter_cue: str = args.chapter_cue
@@ -598,8 +787,14 @@ def main():
         print(f"Not a directory: {root}", file=sys.stderr)
         sys.exit(1)
 
+    listen_log_dir_str = (args.listen_log_dir or "").strip()
+    listen_log_dir: Optional[Path] = None
+    if listen_log_dir_str:
+        listen_log_dir = Path(listen_log_dir_str).expanduser().resolve()
+
     mp3_list = list(iter_mp3_files(root))
-    head_sec = max(0.5, float(args.head_seconds))
+    head_sec_rest = max(0.5, float(args.head_seconds))
+    head_sec_first = max(0.5, float(args.head_seconds_first))
     nfiles = len(mp3_list)
     all_marks: list = []
 
@@ -635,14 +830,17 @@ def main():
             print(f"[0/{nfiles}]", file=sys.stderr, flush=True)
 
         for idx, mp3 in enumerate(mp3_list, start=1):
+            head_this = head_sec_first if idx == 1 else head_sec_rest
             try:
                 marks = _marks_for_mp3(
                     model,
                     mp3,
-                    head_sec,
+                    head_this,
                     args.ffmpeg,
                     args.language,
                     chapter_cue,
+                    root=root,
+                    listen_log_dir=listen_log_dir,
                 )
             except (subprocess.CalledProcessError, Exception):
                 sys.exit(1)
@@ -684,13 +882,15 @@ def main():
                         _whisper_pool_job,
                         (
                             str(p),
-                            head_sec,
+                            (head_sec_first if fi == 0 else head_sec_rest),
                             args.ffmpeg,
                             args.language,
                             chapter_cue,
+                            str(root),
+                            listen_log_dir_str,
                         ),
                     )
-                    for p in mp3_list
+                    for fi, p in enumerate(mp3_list)
                 ]
                 done = 0
                 for fut in as_completed(futures):
@@ -716,12 +916,19 @@ def main():
             all_marks,
             model_size=args.model_size,
             device=args.device,
-            head_seconds=head_sec,
+            head_seconds_first=head_sec_first,
+            head_seconds_rest=head_sec_rest,
             chapter_cue=chapter_cue,
         )
     except OSError as exc:
         print(f"Could not write chapter log: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    if listen_log_dir is not None:
+        if chapter_cue == "de":
+            print(f"Hör-Protokoll (Transkript pro MP3): {listen_log_dir}", file=sys.stderr, flush=True)
+        else:
+            print(f"Listen transcript logs (one file per MP3): {listen_log_dir}", file=sys.stderr, flush=True)
 
     json.dump(
         {"marks": all_marks, "chapterCue": chapter_cue},

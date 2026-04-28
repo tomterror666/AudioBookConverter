@@ -22,6 +22,7 @@ function setPlatform(os: string): void {
 function mockMacosDeps(partial: Record<string, unknown>): void {
   (NativeModules as Record<string, unknown>).DependencyStatus = {
     readChapterMarksCacheIfPresent: jest.fn(async () => null),
+    clearListenLogsDirectory: jest.fn(async () => undefined),
     ...partial,
   };
 }
@@ -100,11 +101,33 @@ describe("conversionPipeline", () => {
         "cpu",
         "int8_float32",
         "de",
+        false,
       );
       expect(result.marks).toHaveLength(1);
       expect(result.marks[0]?.label).toBe("Kapitel 1");
       expect(result.chapterCue).toBe("de");
       expect(result.usedChapterCache).not.toBe(true);
+    });
+
+    it("passes computeType from options to native whisper", async () => {
+      const whisper = jest.fn(async () => validMarksPayload);
+      mockMacosDeps({
+        detectChaptersWithWhisper: whisper,
+      });
+      await locateChapters({
+        rootDirectory: "/root",
+        modelSize: "base",
+        device: "cpu",
+        computeType: "int8",
+      });
+      expect(whisper).toHaveBeenCalledWith(
+        "/root",
+        "base",
+        "cpu",
+        "int8",
+        "de",
+        false,
+      );
     });
 
     it("passes chapterCue en to native whisper", async () => {
@@ -135,7 +158,48 @@ describe("conversionPipeline", () => {
         "cpu",
         "int8_float32",
         "en",
+        false,
       );
+    });
+
+    it("passes writeListenLogs true to native whisper", async () => {
+      const whisper = jest.fn(async () => validMarksPayload);
+      const clear = jest.fn(async () => undefined);
+      mockMacosDeps({
+        detectChaptersWithWhisper: whisper,
+        clearListenLogsDirectory: clear,
+      });
+      await locateChapters({
+        rootDirectory: "/root",
+        modelSize: "base",
+        device: "cpu",
+        writeListenLogs: true,
+      });
+      expect(clear).toHaveBeenCalledWith("/root");
+      expect(whisper).toHaveBeenCalledWith(
+        "/root",
+        "base",
+        "cpu",
+        "int8_float32",
+        "de",
+        true,
+      );
+    });
+
+    it("does not clear listen logs when writeListenLogs is off", async () => {
+      const whisper = jest.fn(async () => validMarksPayload);
+      const clear = jest.fn(async () => undefined);
+      mockMacosDeps({
+        detectChaptersWithWhisper: whisper,
+        clearListenLogsDirectory: clear,
+      });
+      await locateChapters({
+        rootDirectory: "/root",
+        modelSize: "base",
+        device: "cpu",
+      });
+      expect(clear).not.toHaveBeenCalled();
+      expect(whisper).toHaveBeenCalled();
     });
 
     it("uses cached chapter marks when present and skips whisper", async () => {

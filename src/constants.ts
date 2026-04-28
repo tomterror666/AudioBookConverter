@@ -123,3 +123,17 @@ export const MODE_OPTIONS = [
   "large",
 ] as const;
 export const DEVICE_OPTIONS = ["cpu", "cuda"] as const;
+
+/**
+ * faster-whisper / CTranslate2 compute types (`DependencyStatus.mm`).
+ * UI order: fixed types fastest/lightest → slowest/most accurate, then `default` (automatic).
+ */
+export const COMPUTE_TYPE_OPTIONS = [
+  "int8",
+  "int8_float16",
+  "int8_float32",
+  "int16",
+  "float16",
+  "float32",
+  "default",
+] as const;

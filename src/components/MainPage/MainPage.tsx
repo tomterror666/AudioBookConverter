@@ -24,7 +24,13 @@ import { Progress, ProgressSize } from "../ui/Progress";
 import { Button, ButtonVariant } from "../ui/Button";
 import { InputField } from "../ui/InputField";
 import { Label, LabelAlign, LabelVariant } from "../ui/Label";
-import { Color, DEVICE_OPTIONS, MODE_OPTIONS, Size } from "../../constants";
+import {
+  Color,
+  COMPUTE_TYPE_OPTIONS,
+  DEVICE_OPTIONS,
+  MODE_OPTIONS,
+  Size,
+} from "../../constants";
 import { UiLocaleProvider, useUiCopy } from "../../UiLocaleContext";
 import {
   CreateAudiobookM4bModal,
@@ -90,6 +96,9 @@ function MainPageInner(props: {
   );
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+  const [selectedComputeType, setSelectedComputeType] = useState<string | null>(
+    "int8_float32",
+  );
   const [isConverting, setIsConverting] = useState(false);
   const [conversionStep, setConversionStep] = useState(0);
   const [mp3FileTotal, setMp3FileTotal] = useState<number | null>(null);
@@ -98,6 +107,8 @@ function MainPageInner(props: {
   const [whisperModelPhase, setWhisperModelPhase] = useState<
     "download" | "scan"
   >("scan");
+  /** Whisper: write per-MP3 transcript `.listen.txt` files under AudiobookConverter_listen_logs. */
+  const [writeListenLogs, setWriteListenLogs] = useState(false);
   const [mergeProgressDone, setMergeProgressDone] = useState(0);
   const [mergeProgressTotal, setMergeProgressTotal] = useState(0);
   const [dependencyStatuses, setDependencyStatuses] =
@@ -528,13 +539,27 @@ function MainPageInner(props: {
     }
   };
 
+  const handleComputeTypePress = async () => {
+    const picked = await askSelection(
+      u.selection.chooseComputeType.headline,
+      u.selection.chooseComputeType.content,
+      COMPUTE_TYPE_OPTIONS,
+      selectedComputeType,
+    );
+    if (picked) {
+      setSelectedComputeType(picked);
+    }
+  };
+
   const formComplete =
     typeof selectedDirectory === "string" &&
     selectedDirectory.trim().length > 0 &&
     selectedMode != null &&
     selectedMode.trim().length > 0 &&
     selectedDevice != null &&
-    selectedDevice.trim().length > 0;
+    selectedDevice.trim().length > 0 &&
+    selectedComputeType != null &&
+    selectedComputeType.trim().length > 0;
 
   const depsOkForStart =
     Platform.OS !== "macos" || allDependencyLedsGreen(dependencyStatuses);
@@ -584,6 +609,11 @@ function MainPageInner(props: {
     if (!(selectedDevice != null && selectedDevice.trim().length > 0)) {
       missing.push(u.missingFieldToken.device);
     }
+    if (
+      !(selectedComputeType != null && selectedComputeType.trim().length > 0)
+    ) {
+      missing.push(u.missingFieldToken.computeType);
+    }
     if (missing.length > 0) {
       showInfoModal(
         u.errors.incomplete.headline,
@@ -623,7 +653,9 @@ function MainPageInner(props: {
           rootDirectory: selectedDirectory!.trim(),
           modelSize: selectedMode!.trim(),
           device: selectedDevice!.trim().toLowerCase(),
+          computeType: selectedComputeType!.trim().toLowerCase(),
           chapterCue,
+          writeListenLogs,
         });
         if (
           chapterMarks.usedChapterCache &&
@@ -798,6 +830,21 @@ function MainPageInner(props: {
                     placeholder="cpu"
                   />
                 </View>
+                <View style={styles.computeTypeRow}>
+                  <View style={styles.fieldLabelContainer}>
+                    <Label
+                      title={u.labelComputeType}
+                      variant={LabelVariant.NormalBold}
+                      align={LabelAlign.Left}
+                    />
+                  </View>
+                  <InputField
+                    wrapperStyle={styles.computeTypeInputWrapper}
+                    onPress={handleComputeTypePress}
+                    value={selectedComputeType}
+                    placeholder="int8_float32"
+                  />
+                </View>
                 <View style={styles.chapterCueRow}>
                   <View style={styles.fieldLabelContainer}>
                     <Label
@@ -832,6 +879,45 @@ function MainPageInner(props: {
                             chapterCue === "en"
                               ? Color.gray900
                               : Color.gray500
+                          }
+                          align={LabelAlign.Left}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.listenLogRow}>
+                  <View style={styles.fieldLabelContainer}>
+                    <Label
+                      title={u.labelListenLog}
+                      variant={LabelVariant.NormalBold}
+                      align={LabelAlign.Left}
+                    />
+                  </View>
+                  <View style={styles.chapterCueInputWrapper}>
+                    <View style={styles.chapterCueBox}>
+                      <View style={styles.chapterCueControls}>
+                        <Label
+                          title={chapterCue === "de" ? "Aus" : "Off"}
+                          variant={LabelVariant.Normal}
+                          color={
+                            !writeListenLogs ? Color.gray900 : Color.gray500
+                          }
+                          align={LabelAlign.Left}
+                        />
+                        <Switch
+                          value={writeListenLogs}
+                          onValueChange={setWriteListenLogs}
+                          trackColor={{
+                            false: Color.gray300,
+                            true: Color.primary,
+                          }}
+                        />
+                        <Label
+                          title={chapterCue === "de" ? "Ein" : "On"}
+                          variant={LabelVariant.Normal}
+                          color={
+                            writeListenLogs ? Color.gray900 : Color.gray500
                           }
                           align={LabelAlign.Left}
                         />

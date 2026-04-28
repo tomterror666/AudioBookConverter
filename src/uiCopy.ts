@@ -12,6 +12,10 @@ type StepKey = 1 | 2 | 3 | 4 | 5;
 export type UiCopy = {
   conversionStepTitles: Record<StepKey, string>;
   labelChapterCue: string;
+  /** Whisper step: save per-MP3 transcript logs under AudiobookConverter_listen_logs. */
+  labelListenLog: string;
+  /** faster-whisper quantization / precision (matches native allowlist). */
+  labelComputeType: string;
   startButton: string;
   mp3Modal: {
     headline: string;
@@ -26,6 +30,7 @@ export type UiCopy = {
   selection: {
     chooseMode: { headline: string; content: string };
     chooseDevice: { headline: string; content: string };
+    chooseComputeType: { headline: string; content: string };
     cancel: string;
     use: string;
   };
@@ -39,7 +44,12 @@ export type UiCopy = {
     incomplete: { headline: string; body: (items: string) => string };
     cudaUnavailable: { headline: string; mac: string; other: string };
   };
-  missingFieldToken: { folder: string; mode: string; device: string };
+  missingFieldToken: {
+    folder: string;
+    mode: string;
+    device: string;
+    computeType: string;
+  };
   coverAccessibilityFailed: string;
   pythonInfo: {
     header: string;
@@ -71,6 +81,8 @@ const de: UiCopy = {
     5: "Hörbuch (M4B) erstellen",
   },
   labelChapterCue: "Sprache:",
+  labelListenLog: "Hör-Protokoll:",
+  labelComputeType: "Quantisierung:",
   startButton: "Start",
   mp3Modal: {
     headline: "MP3-Dateien",
@@ -93,6 +105,14 @@ const de: UiCopy = {
     chooseDevice: {
       headline: "Gerät wählen",
       content: "Bitte ein Rechen-Backend wählen.",
+    },
+    chooseComputeType: {
+      headline: "Quantisierung wählen",
+      content:
+        "Die festen Typen sind von oben nach unten angeordnet: weiter oben tendenziell " +
+        "schneller (leichtere Berechnung), weiter unten tendenziell genauer bei der " +
+        "Spracherkennung (langsamer, höherer Aufwand).\n\n" +
+        "Letzte Option „default“: faster-whisper wählt automatisch.",
     },
     cancel: "Abbrechen",
     use: "Übernehmen",
@@ -117,7 +137,12 @@ const de: UiCopy = {
       other: "Auf dieser Plattform ist CUDA nicht verfügbar. Bitte „cpu“ wählen.",
     },
   },
-  missingFieldToken: { folder: "Folder", mode: "Mode", device: "Device" },
+  missingFieldToken: {
+    folder: "Folder",
+    mode: "Mode",
+    device: "Device",
+    computeType: "Compute",
+  },
   coverAccessibilityFailed: "Cover konnte nicht geladen werden",
   pythonInfo: {
     header: "Python-Info",
@@ -152,6 +177,8 @@ const en: UiCopy = {
     5: "Create audiobook (M4B)",
   },
   labelChapterCue: "Language:",
+  labelListenLog: "Listen log:",
+  labelComputeType: "Compute:",
   startButton: "Start",
   mp3Modal: {
     headline: "MP3 files",
@@ -172,6 +199,13 @@ const en: UiCopy = {
     chooseDevice: {
       headline: "Choose device",
       content: "Please choose a compute device",
+    },
+    chooseComputeType: {
+      headline: "Choose compute type",
+      content:
+        "Fixed types are ordered top to bottom: higher tends to be faster (lighter math), " +
+        "lower tends to be more accurate for speech recognition (slower, more compute).\n\n" +
+        "Last option “default”: faster-whisper chooses automatically.",
     },
     cancel: "Cancel",
     use: "Use",
@@ -196,7 +230,12 @@ const en: UiCopy = {
       other: "CUDA is not supported on this platform. Please choose “cpu”.",
     },
   },
-  missingFieldToken: { folder: "Folder", mode: "Mode", device: "Device" },
+  missingFieldToken: {
+    folder: "Folder",
+    mode: "Mode",
+    device: "Device",
+    computeType: "Compute",
+  },
   coverAccessibilityFailed: "Cover lookup failed",
   pythonInfo: {
     header: "Python Info",

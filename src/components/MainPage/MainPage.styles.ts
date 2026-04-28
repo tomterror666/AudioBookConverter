@@ -91,7 +91,22 @@ export const styles = StyleSheet.create({
     flex: 1,
     maxWidth: 600,
   },
+  computeTypeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 32,
+  },
+  computeTypeInputWrapper: {
+    marginLeft: 64,
+    flex: 1,
+    maxWidth: 600,
+  },
   chapterCueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 32,
+  },
+  listenLogRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 32,

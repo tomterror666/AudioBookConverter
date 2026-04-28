@@ -731,6 +731,19 @@ static NSSet *WhisperModelSizes(void)
   return [NSSet setWithArray:@[ @"tiny", @"base", @"small", @"medium", @"large" ]];
 }
 
+static NSSet *WhisperComputeTypes(void)
+{
+  return [NSSet setWithArray:@[
+    @"default",
+    @"int8",
+    @"int8_float16",
+    @"int8_float32",
+    @"int16",
+    @"float16",
+    @"float32",
+  ]];
+}
+
 static BOOL ValidateWhisperParams(NSString *modelSize,
                                  NSString *device,
                                  NSString *computeType,
@@ -751,9 +764,9 @@ static BOOL ValidateWhisperParams(NSString *modelSize,
     reject(@"bad_device", @"Invalid device. Allowed: cpu, cuda.", nil);
     return NO;
   }
-  if (![ct isEqualToString:@"int8"] && ![ct isEqualToString:@"int8_float32"]) {
+  if (![WhisperComputeTypes() containsObject:ct]) {
     reject(@"bad_compute",
-           @"Invalid compute_type. Allowed: int8, int8_float32.",
+           @"Invalid compute_type. Allowed: default, int8, int8_float16, int8_float32, int16, float16, float32.",
            nil);
     return NO;
   }
@@ -842,11 +855,52 @@ static void ReadChapterMarksCacheIfPresentResolved(NSString *rootDir,
   resolve(payload);
 }
 
+static NSString *AUBKListenLogsFolderName(void)
+{
+  return @"AudiobookConverter_listen_logs";
+}
+
+/// Removes `<root>/AudiobookConverter_listen_logs` if present (fresh listen logs each run).
+static void ClearListenLogsDirectoryResolved(NSString *rootDir,
+                                             RCTPromiseResolveBlock resolve,
+                                             RCTPromiseRejectBlock reject)
+{
+  if (rootDir.length == 0) {
+    reject(@"empty", @"rootDirectory is required.", nil);
+    return;
+  }
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSString *stdRoot = [rootDir stringByStandardizingPath];
+  BOOL isDir = NO;
+  if (![fm fileExistsAtPath:stdRoot isDirectory:&isDir]) {
+    reject(@"enoent", @"The project directory does not exist.", nil);
+    return;
+  }
+  if (!isDir) {
+    reject(@"notdir", @"The path is not a directory.", nil);
+    return;
+  }
+  NSString *listenLogsPath =
+      [stdRoot stringByAppendingPathComponent:AUBKListenLogsFolderName()];
+  NSError *err = nil;
+  if ([fm fileExistsAtPath:listenLogsPath]) {
+    if (![fm removeItemAtPath:listenLogsPath error:&err]) {
+      reject(@"cleanup_failed",
+             [NSString stringWithFormat:@"Could not remove listen logs folder: %@",
+                                        err.localizedDescription ?: @"unknown"],
+             err);
+      return;
+    }
+  }
+  resolve(@YES);
+}
+
 static void DetectChaptersWithWhisperResolved(NSString *rootDir,
                                            NSString *modelSize,
                                            NSString *device,
                                            NSString *computeType,
                                            NSString *chapterCue,
+                                           BOOL listenWordsLog,
                                            RCTCallableJSModules *_Nullable jsModulesForProgress,
                                            RCTPromiseResolveBlock resolve,
                                            RCTPromiseRejectBlock reject)
@@ -889,11 +943,15 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
     return;
   }
 
+  NSString *stdRoot = [rootDir stringByStandardizingPath];
+  NSString *listenLogDir =
+      [stdRoot stringByAppendingPathComponent:AUBKListenLogsFolderName()];
+
   /// PYTHONUNBUFFERED: stderr lines flush immediately; otherwise progress stays buffered until exit.
-  NSString *cmd =
-      [NSString stringWithFormat:
+  NSMutableString *cmd =
+      [NSMutableString stringWithFormat:
            @"env PYTHONUNBUFFERED=1 %@ %@ --root-dir %@ --model-size %@ --device %@ --compute-type %@ "
-           @"--ffmpeg %@ --head-seconds 45 --chapter-cue %@",
+           @"--ffmpeg %@ --language %@ --head-seconds 45 --head-seconds-first 60 --chapter-cue %@",
            py,
            ShellQuotePath(script),
            ShellQuotePath(rootDir),
@@ -901,7 +959,11 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
            ShellQuotePath(dev),
            ShellQuotePath(ct),
            ShellQuotePath(ffmpeg),
+           ShellQuotePath(cue),
            ShellQuotePath(cue)];
+  if (listenWordsLog) {
+    [cmd appendFormat:@" --listen-log-dir %@", ShellQuotePath(listenLogDir)];
+  }
   int status = -1;
   NSMutableString *stderrAll = [NSMutableString string];
   NSString *stdoutStr = RunShellSeparatingStdoutStreamingStderr(
@@ -1389,12 +1451,27 @@ RCT_REMAP_METHOD(countMp3FilesInDirectory,
   });
 }
 
+RCT_REMAP_METHOD(clearListenLogsDirectory,
+                 clearListenLogsDirectory:(NSString *)rootDirectory
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  if (rootDirectory.length == 0) {
+    reject(@"empty", @"rootDirectory is required.", nil);
+    return;
+  }
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    ClearListenLogsDirectoryResolved(rootDirectory, resolve, reject);
+  });
+}
+
 RCT_REMAP_METHOD(detectChaptersWithWhisper,
                  detectChaptersWithWhisper:(NSString *)rootDirectory
                  modelSize:(NSString *)modelSize
                  device:(NSString *)device
                  computeType:(NSString *)computeType
                  chapterCue:(NSString *)chapterCue
+                 listenWordsLog:(BOOL)listenWordsLog
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -1408,7 +1485,7 @@ RCT_REMAP_METHOD(detectChaptersWithWhisper,
   RCTCallableJSModules *progressJS = self.callableJSModules;
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     DetectChaptersWithWhisperResolved(
-        rootDirectory, modelSize, device, computeType, chapterCue, progressJS, resolve, reject);
+        rootDirectory, modelSize, device, computeType, chapterCue, listenWordsLog, progressJS, resolve, reject);
   });
 }
 
