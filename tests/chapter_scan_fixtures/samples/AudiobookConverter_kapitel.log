@@ -1,0 +1,24 @@
+AudioBookConverter — erkannte Kapitel (Whisper)
+Project folder: /Users/andre.hess/myProjects/AudioBookConverter/tests/chapter_scan_fixtures/samples
+Generated (UTC): 2026-04-28 07:40:38 UTC
+Model: medium, device: cpu, chapter cue: de, scan: first MP3 = 60 s from start (no VAD); rest = VAD + 20 s from first speech, else 45 s from file start if no chapter (VAD search ≤ 600 s)
+
+Gefundene Kapitelmarkierungen: 4
+
+--- 000_Zeittafel.mp3 ---
+  Zeittafel @ 0.000 s  (00:00:00.000)
+
+--- 001_Prolog.mp3 ---
+  Prolog @ 0.000 s  (00:00:00.000)
+
+--- 002_Kapitel_1.mp3 ---
+  Kapitel 1 @ 0.000 s  (00:00:00.000)
+
+--- 003_Kapitel_2.mp3 ---
+  Kapitel 2 @ 0.000 s  (00:00:00.000)
+
+— Tabelle (Datei | Kapitel | Sekunden | Timecode) —
+000_Zeittafel.mp3	Zeittafel	0.000	00:00:00.000
+001_Prolog.mp3	Prolog	0.000	00:00:00.000
+002_Kapitel_1.mp3	Kapitel 1	0.000	00:00:00.000
+003_Kapitel_2.mp3	Kapitel 2	0.000	00:00:00.000

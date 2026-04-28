@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 """
-For each MP3, transcribe only the first --head-seconds (default 45) with ffmpeg + faster-whisper
-to identify the chapter: spoken special labels (Zeittafel, Prolog, Epilog, Prologue, Epilogue) or
-“Kapitel/Chapter” + number. German: *Z* as [s] in ASR (z→s), plus *Levenshtein* for stems like
-*Zeitfafel*; *Kapitel* may be clipped (*Kapitl*) or misheard. **Compound specials** (e.g. *Zeit* + *Tafel* as two ASR words) and matches in the
-**full head transcript** are detected. If **Prolog/Prologue/Epilog** is detected in more than one
-MP3, the **last** file in folder order is kept; duplicate **Zeittafel** keeps the **first**.
-The chapter is placed at the **start of that MP3** (startSec 0) on
-the merged timeline; the transcript only selects the title, not the time within the file.
-JSON to stdout, progress to stderr.
+**First** MP3 in folder sort order (see ``iter_mp3_files``) is the typical “Zeittafel / intro”
+track: a **long** window (``--first-file-head-seconds``, default 60 s) is transcribed **from
+file start** (no VAD) so late cues after music still appear in the transcript.
+
+**All other** MP3s use **Silero VAD** to skip leading music, then ``--head-seconds`` (default
+20 s) from first speech. VAD probability **threshold** (and optional silence/pad ms) follow the
+chosen Whisper **model size** — ``vad_params_for_whisper_model`` — unless overridden with
+``--vad-threshold`` / ``--vad-min-silence-ms`` / ``--vad-speech-pad-ms``. If **no** chapter is found in that transcript, a **fallback** pass
+transcribes ``--fallback-from-start-seconds`` (default 45 s) **from file start** (still
+no Whisper VAD). ffmpeg + faster-whisper for the chapter: spoken special labels
+(Zeittafel, Prolog, Epilog, Prologue, Epilogue) or “Kapitel/Chapter” + number. German: *Z* as
+[s] in ASR (z→s), plus *Levenshtein* for stems like *Zeitfafel*; *Kapitel* may be clipped
+(*Kapitl*) or misheard. **Compound specials** (e.g. *Zeit* + *Tafel* as two ASR words) and
+matches in the **full** transcribed window are detected. If **Prolog/Prologue/Epilog** is
+detected in more than one MP3, the **last** file in folder order is kept; duplicate
+**Zeittafel** keeps the **first**. The chapter is placed at the **start of that MP3**
+(startSec 0) on the merged timeline. JSON to stdout, progress to stderr.
+
+Optional ``--listen-log-dir``: for each MP3, writes a UTF-8 file listing **all words**
+Whisper returned (timestamps + text per line when word-level timestamps exist), with a
+section per decode pass (first-file window, VAD+head, or fallback).
 """
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -24,8 +36,44 @@ from typing import Any, Optional, Tuple
 
 MAX_PARALLEL_WHISPER_WORKERS = 4
 
-HEAD_SECONDS_DEFAULT = 45
+HEAD_SECONDS_DEFAULT = 20.0
+# When VAD + head-seconds finds no chapter: second pass from t=0 (no VAD), this many seconds.
+FALLBACK_FROM_START_SECONDS_DEFAULT = 45.0
+# First MP3 in scan order: transcribe this many seconds from t=0 (no VAD) for long intros / Zeittafel.
+FIRST_FILE_HEAD_SECONDS_DEFAULT = 60.0
+# Decode at most this many seconds from the file start to run VAD (search for first speech).
+VAD_MAX_SEARCH_SEC = 600.0
+# Silero VAD defaults (see vad_params_for_whisper_model); CLI can override.
+VAD_MIN_SILENCE_DURATION_MS_DEFAULT = 400
+VAD_SPEECH_PAD_MS_DEFAULT = 200
 CHAPTER_LOG_FILENAME = "AudiobookConverter_kapitel.log"
+# Optional --listen-log-dir: one UTF-8 text file per MP3 with all transcribed words (per pass).
+
+
+def vad_params_for_whisper_model(model_size: str) -> tuple[float, int, int]:
+    """
+    Silero VAD runs **before** Whisper; it only sees audio. Presets still vary with the chosen
+    Whisper *mode* so UX stays aligned (tiny/base: slightly earlier speech gate; large-*:
+    slightly stricter to reduce music mistaken as speech). Primary tuning: probability
+    **threshold** (~0.23–0.27); silence duration / pad stay 400 / 200 ms unless overridden on CLI.
+
+    Calibrated using ``scripts/probe_vad_sensitivity.py`` on German audiobook clips (early chapter
+    cues vs sustained narration).
+    """
+    m = model_size.strip().lower()
+    sil_ms = VAD_MIN_SILENCE_DURATION_MS_DEFAULT
+    pad_ms = VAD_SPEECH_PAD_MS_DEFAULT
+    if m.startswith("tiny"):
+        return (0.23, sil_ms, pad_ms)
+    if m == "base":
+        return (0.24, sil_ms, pad_ms)
+    if m in ("small", "medium"):
+        return (0.25, sil_ms, pad_ms)
+    if m.startswith("distil"):
+        return (0.26, sil_ms, pad_ms)
+    if "large" in m:
+        return (0.27, sil_ms, pad_ms)
+    return (0.25, sil_ms, pad_ms)
 
 
 def whisper_model_is_cached_locally(model_size: str) -> bool:
@@ -60,7 +108,12 @@ def write_chapter_log(
     *,
     model_size: str,
     device: str,
-    head_seconds: float,
+    first_file_head_seconds: float,
+    head_after_speech_seconds: float,
+    fallback_from_start_seconds: float,
+    vad_threshold: float,
+    vad_min_silence_ms: int,
+    vad_speech_pad_ms: int,
     chapter_cue: str,
 ) -> None:
     log_path = root / CHAPTER_LOG_FILENAME
@@ -84,7 +137,12 @@ def write_chapter_log(
         ),
         (
             f"Model: {model_size}, device: {device}, chapter cue: {chapter_cue}, "
-            f"scan: first {head_seconds:.0f} s per MP3"
+            f"Silero VAD: threshold={vad_threshold:g}, min_silence={vad_min_silence_ms} ms, "
+            f"speech_pad={vad_speech_pad_ms} ms; "
+            f"scan: first MP3 = {first_file_head_seconds:.0f} s from start (no VAD); "
+            f"rest = VAD + {head_after_speech_seconds:.0f} s from first speech, "
+            f"else {fallback_from_start_seconds:.0f} s from file start if no chapter "
+            f"(VAD search ≤ {VAD_MAX_SEARCH_SEC:.0f} s)"
         ),
         "",
         count_line,
@@ -499,8 +557,78 @@ def extract_head_wav(ffmpeg_bin: str, src: Path, duration_sec: float) -> Path:
     return out_path
 
 
+def extract_wav_segment(ffmpeg_bin: str, src: Path, t_start: float, duration_sec: float) -> Path:
+    """pcm_s16le 16k mono, from t_start (seconds) for duration_sec. Used after VAD finds speech start."""
+    fd, out_name = tempfile.mkstemp(suffix=".wav", prefix="abc_whisper_seg_")
+    os.close(fd)
+    out_path = Path(out_name)
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{t_start:.3f}",
+        "-i",
+        str(src),
+        "-t",
+        f"{max(0.5, float(duration_sec)):.3f}",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        str(out_path),
+    ]
+    subprocess.run(cmd, check=True, stderr=subprocess.PIPE)
+    return out_path
+
+
+def first_speech_start_sec_in_wav(
+    wav_path: Path,
+    *,
+    threshold: float,
+    min_silence_duration_ms: int,
+    speech_pad_ms: int,
+) -> float:
+    """
+    Use faster-whisper’s Silero VAD on decoded audio. Returns offset in seconds from the
+    start of *wav_path* (0 if no speech / import failure).
+    """
+    try:
+        from faster_whisper.audio import decode_audio
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+    except ImportError:
+        return 0.0
+    try:
+        audio = decode_audio(str(wav_path), sampling_rate=16000)
+    except Exception:
+        return 0.0
+    if audio is None or len(audio) < 1:
+        return 0.0
+    opts = VadOptions(
+        threshold=float(threshold),
+        min_silence_duration_ms=int(min_silence_duration_ms),
+        speech_pad_ms=int(speech_pad_ms),
+    )
+    try:
+        chunks = get_speech_timestamps(
+            audio,
+            opts,
+            sampling_rate=16000,
+        )
+    except Exception:
+        return 0.0
+    if not chunks:
+        return 0.0
+    start_s = int(chunks[0]["start"])
+    return max(0.0, start_s / 16000.0)
+
+
 def transcribe_file(model, wav_path: Path, language: str):
-    # Short clip: no VAD so “Kapitel” at the start is not trimmed away
+    # Pre-VAD clip; do not re-VAD in Whisper (full cue may span the short window)
     segments, _info = model.transcribe(
         str(wav_path),
         language=language,
@@ -510,6 +638,58 @@ def transcribe_file(model, wav_path: Path, language: str):
     return list(segments)
 
 
+def _listen_log_output_path(listen_dir: Path, mp3: Path, root: Path) -> Path:
+    listen_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        rel = mp3.resolve().relative_to(root.resolve())
+    except ValueError:
+        rel = Path(mp3.name)
+    safe = "__".join(rel.parts).replace(" ", "_")
+    return listen_dir / f"{safe}_listen.txt"
+
+
+def _segments_to_listen_block(section_title: str, segments: list) -> str:
+    lines: list[str] = [f"=== {section_title} ===", ""]
+    for seg in segments:
+        ws = getattr(seg, "words", None)
+        if ws:
+            for w in ws:
+                wt = getattr(w, "word", "") or ""
+                st = getattr(w, "start", None)
+                en = getattr(w, "end", None)
+                if st is not None and en is not None:
+                    lines.append(f"{float(st):.3f}\t{float(en):.3f}\t{wt}")
+                elif wt:
+                    lines.append(wt)
+        else:
+            tx = (getattr(seg, "text", None) or "").strip()
+            ss = float(getattr(seg, "start", 0.0))
+            ee = float(getattr(seg, "end", 0.0))
+            if tx:
+                lines.append(f"{ss:.3f}\t{ee:.3f}\t{tx}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_listen_log_for_mp3(
+    listen_dir: Optional[Path],
+    mp3: Path,
+    root: Path,
+    sections: list[tuple[str, list]],
+) -> None:
+    """Write one UTF-8 file under listen_dir with header + one block per Whisper pass."""
+    if not listen_dir or not sections:
+        return
+    header = (
+        "AudioBookConverter — Whisper word log\n"
+        f"MP3: {mp3.resolve()}\n"
+        f"Scan root: {root.resolve()}\n\n"
+    )
+    body = "\n".join(_segments_to_listen_block(title, segs) for title, segs in sections)
+    path = _listen_log_output_path(listen_dir, mp3, root)
+    path.write_text(header + body, encoding="utf-8")
+
+
 def _marks_for_mp3(
     model,
     mp3: Path,
@@ -517,11 +697,73 @@ def _marks_for_mp3(
     ffmpeg_bin: str,
     language: str,
     chapter_cue: str,
+    *,
+    root_dir: Path,
+    listen_log_dir: Optional[Path],
+    vad_threshold: float,
+    vad_min_silence_ms: int,
+    vad_speech_pad_ms: int,
+    first_in_folder_order: bool,
+    first_file_head_sec: float,
+    fallback_from_start_sec: float,
 ) -> list:
-    wav: Optional[Path] = None
+    search_wav: Optional[Path] = None
+    trans_wav: Optional[Path] = None
+    segments = None
+    listen_sections: list[tuple[str, list]] = []
     try:
-        wav = extract_head_wav(ffmpeg_bin, mp3, head_sec)
-        segments = transcribe_file(model, wav, language)
+        if first_in_folder_order:
+            trans_wav = extract_wav_segment(
+                ffmpeg_bin, mp3, 0, max(0.5, float(first_file_head_sec))
+            )
+            segments = transcribe_file(model, trans_wav, language)
+            listen_sections.append(
+                (
+                    f"first MP3 in folder order: {first_file_head_sec:g} s from file start (no VAD)",
+                    segments,
+                )
+            )
+        else:
+            search_wav = extract_head_wav(ffmpeg_bin, mp3, VAD_MAX_SEARCH_SEC)
+            t0 = first_speech_start_sec_in_wav(
+                search_wav,
+                threshold=vad_threshold,
+                min_silence_duration_ms=vad_min_silence_ms,
+                speech_pad_ms=vad_speech_pad_ms,
+            )
+            trans_wav = extract_wav_segment(ffmpeg_bin, mp3, t0, head_sec)
+            segments = transcribe_file(model, trans_wav, language)
+            listen_sections.append(
+                (
+                    f"VAD then {head_sec:g} s from first speech (first speech at t≈{t0:.3f} s in search window)",
+                    segments,
+                )
+            )
+            words = words_from_segments(segments)
+            marks = find_chapter_marks_for_file(
+                words, segments, str(mp3.resolve()), chapter_cue
+            )
+            if marks:
+                write_listen_log_for_mp3(listen_log_dir, mp3, root_dir, listen_sections)
+                return marks
+            if trans_wav is not None and trans_wav.exists():
+                try:
+                    trans_wav.unlink()
+                except OSError:
+                    pass
+            trans_wav = extract_wav_segment(
+                ffmpeg_bin,
+                mp3,
+                0,
+                max(0.5, float(fallback_from_start_sec)),
+            )
+            segments = transcribe_file(model, trans_wav, language)
+            listen_sections.append(
+                (
+                    f"fallback: {fallback_from_start_sec:g} s from file start (no VAD)",
+                    segments,
+                )
+            )
     except subprocess.CalledProcessError as exc:
         print(f"{mp3}: ffmpeg {exc.stderr!r}", file=sys.stderr)
         raise
@@ -529,12 +771,15 @@ def _marks_for_mp3(
         print(f"{mp3}: {exc}", file=sys.stderr)
         raise
     finally:
-        if wav is not None and wav.exists():
-            try:
-                wav.unlink()
-            except OSError:
-                pass
+        for w in (search_wav, trans_wav):
+            if w is not None and w.exists():
+                try:
+                    w.unlink()
+                except OSError:
+                    pass
 
+    assert segments is not None
+    write_listen_log_for_mp3(listen_log_dir, mp3, root_dir, listen_sections)
     words = words_from_segments(segments)
     return find_chapter_marks_for_file(
         words, segments, str(mp3.resolve()), chapter_cue
@@ -555,14 +800,61 @@ def _init_whisper_pool(model_size: str, device: str, compute_type: str) -> None:
     )
 
 
-def _whisper_pool_job(payload: Tuple[str, float, str, str, str]) -> list:
-    mp3_str, head_sec, ffmpeg_bin, language, chapter_cue = payload
+def _whisper_pool_job(
+    payload: Tuple[
+        str,
+        float,
+        str,
+        str,
+        str,
+        str,
+        str,
+        float,
+        int,
+        int,
+        bool,
+        float,
+        float,
+    ],
+) -> list:
+    (
+        mp3_str,
+        head_sec,
+        ffmpeg_bin,
+        language,
+        chapter_cue,
+        root_dir_str,
+        listen_log_dir_str,
+        vad_threshold,
+        vad_min_silence_ms,
+        vad_speech_pad_ms,
+        first_in_folder_order,
+        first_file_head_sec,
+        fallback_from_start_sec,
+    ) = payload
     mp3 = Path(mp3_str)
+    root_dir = Path(root_dir_str)
+    listen_log_dir: Optional[Path] = (
+        Path(listen_log_dir_str) if listen_log_dir_str else None
+    )
     global _worker_model
     if _worker_model is None:
         raise RuntimeError("Whisper worker pool not initialized")
     return _marks_for_mp3(
-        _worker_model, mp3, head_sec, ffmpeg_bin, language, chapter_cue
+        _worker_model,
+        mp3,
+        head_sec,
+        ffmpeg_bin,
+        language,
+        chapter_cue,
+        root_dir=root_dir,
+        listen_log_dir=listen_log_dir,
+        vad_threshold=vad_threshold,
+        vad_min_silence_ms=vad_min_silence_ms,
+        vad_speech_pad_ms=vad_speech_pad_ms,
+        first_in_folder_order=first_in_folder_order,
+        first_file_head_sec=first_file_head_sec,
+        fallback_from_start_sec=fallback_from_start_sec,
     )
 
 
@@ -582,13 +874,73 @@ def main():
         "--head-seconds",
         type=float,
         default=HEAD_SECONDS_DEFAULT,
-        help=f"Transcribe only the first N seconds (default: {HEAD_SECONDS_DEFAULT})",
+        help=(
+            "For every MP3 except the first: after VAD, transcribe this many seconds from "
+            "the first speech (default: "
+            f"{HEAD_SECONDS_DEFAULT})"
+        ),
+    )
+    parser.add_argument(
+        "--first-file-head-seconds",
+        type=float,
+        default=FIRST_FILE_HEAD_SECONDS_DEFAULT,
+        help=(
+            "For the first MP3 in folder order only: no VAD; transcribe this many seconds "
+            f"from the file start (default: {FIRST_FILE_HEAD_SECONDS_DEFAULT})"
+        ),
+    )
+    parser.add_argument(
+        "--fallback-from-start-seconds",
+        type=float,
+        default=FALLBACK_FROM_START_SECONDS_DEFAULT,
+        help=(
+            "For every MP3 except the first: if VAD + --head-seconds yields no chapter, "
+            "transcribe this many seconds from the file start (default: "
+            f"{FALLBACK_FROM_START_SECONDS_DEFAULT})"
+        ),
     )
     parser.add_argument(
         "--chapter-cue",
         choices=("de", "en"),
         default="de",
         help='Spoken cue before chapter number: "de" = Kapitel, "en" = Chapter',
+    )
+    parser.add_argument(
+        "--listen-log-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "If set, write one UTF-8 file per MP3 under DIR: all transcribed words "
+            "(start/end seconds and text per line when available), one section per Whisper pass "
+            "(first-file head, VAD+head, or fallback from start)."
+        ),
+    )
+    parser.add_argument(
+        "--vad-threshold",
+        type=float,
+        default=None,
+        metavar="T",
+        help=(
+            "Silero VAD probability threshold (0–1). Lower → earlier first speech. "
+            "Default: preset from --model-size (see vad_params_for_whisper_model)."
+        ),
+    )
+    parser.add_argument(
+        "--vad-min-silence-ms",
+        type=int,
+        default=None,
+        metavar="MS",
+        help=(
+            "Silero min silence duration (ms). Default: "
+            f"{VAD_MIN_SILENCE_DURATION_MS_DEFAULT}"
+        ),
+    )
+    parser.add_argument(
+        "--vad-speech-pad-ms",
+        type=int,
+        default=None,
+        metavar="MS",
+        help=f"Silero speech padding (ms). Default: {VAD_SPEECH_PAD_MS_DEFAULT}",
     )
     args = parser.parse_args()
     chapter_cue: str = args.chapter_cue
@@ -598,12 +950,45 @@ def main():
         print(f"Not a directory: {root}", file=sys.stderr)
         sys.exit(1)
 
+    listen_log_dir: Optional[Path] = None
+    if args.listen_log_dir:
+        listen_log_dir = Path(args.listen_log_dir).expanduser().resolve()
+
+    pt_presets = vad_params_for_whisper_model(args.model_size)
+    vad_thr = (
+        float(args.vad_threshold)
+        if args.vad_threshold is not None
+        else float(pt_presets[0])
+    )
+    vad_min_sil_ms = (
+        int(args.vad_min_silence_ms)
+        if args.vad_min_silence_ms is not None
+        else int(pt_presets[1])
+    )
+    vad_pad_ms = (
+        int(args.vad_speech_pad_ms)
+        if args.vad_speech_pad_ms is not None
+        else int(pt_presets[2])
+    )
+    print(
+        f"Silero VAD: threshold={vad_thr:g}, min_silence={vad_min_sil_ms} ms, "
+        f"speech_pad={vad_pad_ms} ms (preset for model {args.model_size!r})",
+        file=sys.stderr,
+        flush=True,
+    )
+
     mp3_list = list(iter_mp3_files(root))
     head_sec = max(0.5, float(args.head_seconds))
+    first_file_head = max(0.5, float(args.first_file_head_seconds))
+    fallback_from_start = max(0.5, float(args.fallback_from_start_seconds))
     nfiles = len(mp3_list)
+    first_path = mp3_list[0].resolve() if nfiles else None
     all_marks: list = []
 
     workers = min(MAX_PARALLEL_WHISPER_WORKERS, nfiles) if nfiles else 0
+
+    if listen_log_dir:
+        print(f"Listen word logs → {listen_log_dir}", file=sys.stderr, flush=True)
 
     if nfiles == 0:
         pass
@@ -643,6 +1028,15 @@ def main():
                     args.ffmpeg,
                     args.language,
                     chapter_cue,
+                    root_dir=root,
+                    listen_log_dir=listen_log_dir,
+                    vad_threshold=vad_thr,
+                    vad_min_silence_ms=vad_min_sil_ms,
+                    vad_speech_pad_ms=vad_pad_ms,
+                    first_in_folder_order=first_path is not None
+                    and mp3.resolve() == first_path,
+                    first_file_head_sec=first_file_head,
+                    fallback_from_start_sec=fallback_from_start,
                 )
             except (subprocess.CalledProcessError, Exception):
                 sys.exit(1)
@@ -688,6 +1082,14 @@ def main():
                             args.ffmpeg,
                             args.language,
                             chapter_cue,
+                            str(root),
+                            str(listen_log_dir) if listen_log_dir else "",
+                            vad_thr,
+                            vad_min_sil_ms,
+                            vad_pad_ms,
+                            first_path is not None and p.resolve() == first_path,
+                            first_file_head,
+                            fallback_from_start,
                         ),
                     )
                     for p in mp3_list
@@ -716,7 +1118,12 @@ def main():
             all_marks,
             model_size=args.model_size,
             device=args.device,
-            head_seconds=head_sec,
+            first_file_head_seconds=first_file_head,
+            head_after_speech_seconds=head_sec,
+            fallback_from_start_seconds=fallback_from_start,
+            vad_threshold=vad_thr,
+            vad_min_silence_ms=vad_min_sil_ms,
+            vad_speech_pad_ms=vad_pad_ms,
             chapter_cue=chapter_cue,
         )
     except OSError as exc:

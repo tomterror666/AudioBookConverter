@@ -76,6 +76,13 @@ yarn-error.log
 # testing
 /coverage
 
+# Chapter-scan regression audio (see tests/chapter_scan_fixtures/README.md)
+tests/chapter_scan_logs/
+tests/chapter_scan_fixtures/**/*.mp3
+tests/chapter_scan_fixtures/**/*.m4a
+tests/chapter_scan_fixtures/**/*.wav
+tests/chapter_scan_fixtures/**/*.flac
+
 # Yarn
 .yarn/*
 !.yarn/patches

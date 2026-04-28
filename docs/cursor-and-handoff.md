@@ -9,7 +9,7 @@ Diese Datei ergänzt das Repo für **neue Maschinen** und **neue Chat-Sessions**
 | `.cursor/rules/*.mdc` | **Cursor Project Rules** – gelten für dieses Repo, wenn du es in Cursor öffnest. |
 | `docs/cursor-and-handoff.md` | Diese Übersicht. |
 | `AGENTS.md` | Kurzverweis für Agenten/Assistenten. |
-| `scripts/whisper_chapter_scan.py` | Schritt 2: Whisper, 45 s Kopf, Log `AudiobookConverter_kapitel.log`. |
+| `scripts/whisper_chapter_scan.py` | Schritt 2: Whisper, **erste** MP3: 60 s ab Dateistart; **rest**: Silero-VAD (Preset je `--model-size`) + 20 s, sonst 45 s Fallback; Log `AudiobookConverter_kapitel.log`. |
 | `scripts/merge_mp3_chapters.py` | Schritt 3: MP3-Merge, Kapitel-Metadaten, AAC 48k. |
 | `src/utils/conversionPipeline.ts` | Pipeline-Schritte 1–4 und native Aufrufe. |
 | `macos/.../DependencyStatus.mm` | Native Bridge (ffmpeg-Pfade, venv-Python, RCT-Methoden). |

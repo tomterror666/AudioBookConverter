@@ -24,7 +24,7 @@ Before starting the app, make sure these dependencies are available:
 - `ffmpeg` and `ffprobe` in your PATH
 - Python 3
 
-For full conversion functionality, create a Python virtual environment at **`~/.audioBookConverter`** (in your home directory) and install the required Python packages (for example `faster-whisper`). The app uses this path for all builds; you can also use **Install** in the in-app Python dependency panel to create it.
+For full conversion functionality, create a Python virtual environment at **`~/.audioBookConverter`** (in your home directory) and install the required Python packages (for example `faster-whisper`, which also pulls in **onnxruntime** for Silero VAD used in chapter detection). The app uses this path for all builds; you can also use **Install** in the in-app Python dependency panel to create it.
 
 **Google Books API key (optional).** The app can look up a book cover for the selected folder name via the Google Books API. You may set `GOOGLE_BOOKS_API_KEY` in a local `.env` file (see `.env.example` in the repository root; copy it to `.env` and add your key). That file is not tracked by git. If no key is set, unauthenticated access still works but with stricter rate limits. Providing a key is only for convenience and is not required to run the rest of the conversion pipeline.
 
@@ -69,8 +69,14 @@ npx react-native run-macos
 
 Expected output files in your selected project/output folder:
 - `AudiobookConverter_kapitel.log`
+- **`AudiobookConverter_listen_logs/`** — optional word-level Whisper transcripts (one `*_listen.txt` per MP3) when chapter detection runs from the app or when you pass **`--listen-log-dir`** to the Python scan script.
 - `AudiobookConverter_merged.m4a` (intermediate file)
 - `AudiobookConverter.m4b` (final audiobook)
+
+## Tests
+
+- **JavaScript / React Native:** `npm test`
+- **Whisper chapter scan (Python):** `npm run test:chapter-scan` runs `scripts/run_chapter_scan_tests.sh`, which prefers **`$HOME/.audioBookConverter/bin/python3`** (the same venv the app uses) and otherwise `python3`. The suite is **skipped** (not failed) if: there are no `.mp3` files under `tests/chapter_scan_fixtures/samples/`, `ffmpeg` is missing, or the chosen Python cannot import `faster-whisper` and `onnxruntime`. Per-model runs are **skipped** when that Whisper snapshot is not already in the Hugging Face cache. Tests pass **`--listen-log-dir`** so word-level transcripts are written under **`tests/chapter_scan_logs/listen/`** (gitignored). The **macOS app** passes **`--listen-log-dir`** to **`AudiobookConverter_listen_logs/`** inside the selected project folder. For arbitrary CLI scans, pass **`--listen-log-dir /path/to/log`** to `whisper_chapter_scan.py`. See `tests/chapter_scan_fixtures/README.md`.
 
 ## Troubleshooting
 

@@ -873,7 +873,7 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   NSString *ffmpeg = FfmpegExecutablePath();
   if (ffmpeg == nil || ffmpeg.length == 0) {
     reject(@"no_ffmpeg",
-           @"ffmpeg is required (first 45 s per MP3 for Whisper). Install it or check PATH.",
+           @"ffmpeg is required (Whisper: 60 s on first MP3, VAD + 20 s on others, 45 s fallback). Install it or check PATH.",
            nil);
     return;
   }
@@ -889,11 +889,14 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
     return;
   }
 
+  NSString *stdRoot = [rootDir stringByStandardizingPath];
+  NSString *listenLogDir = [stdRoot stringByAppendingPathComponent:@"AudiobookConverter_listen_logs"];
+
   /// PYTHONUNBUFFERED: stderr lines flush immediately; otherwise progress stays buffered until exit.
   NSString *cmd =
       [NSString stringWithFormat:
            @"env PYTHONUNBUFFERED=1 %@ %@ --root-dir %@ --model-size %@ --device %@ --compute-type %@ "
-           @"--ffmpeg %@ --head-seconds 45 --chapter-cue %@",
+           @"--ffmpeg %@ --head-seconds 20 --chapter-cue %@ --listen-log-dir %@",
            py,
            ShellQuotePath(script),
            ShellQuotePath(rootDir),
@@ -901,7 +904,8 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
            ShellQuotePath(dev),
            ShellQuotePath(ct),
            ShellQuotePath(ffmpeg),
-           ShellQuotePath(cue)];
+           ShellQuotePath(cue),
+           ShellQuotePath(listenLogDir)];
   int status = -1;
   NSMutableString *stderrAll = [NSMutableString string];
   NSString *stdoutStr = RunShellSeparatingStdoutStreamingStderr(

@@ -16,7 +16,7 @@ alwaysApply: false
 
 ## Python / ffmpeg
 
-- **Scan:** nur erste **45 s** pro MP3 (ffmpeg WAV → faster-whisper), **`vad_filter=False`**; bis zu **4 parallele** Worker (je eigene Model-Instanz); **`compute_type`** z. B. **`int8_float32`**; Log **`AudiobookConverter_kapitel.log`** im gewählten Ordner; JSON nach stdout.
+- **Scan:** **erste** MP3: **60 s** ab Dateistart (ohne VAD); **weitere**: **Silero-VAD** (Schwellen je Whisper-Modus via `--model-size`) + **20 s**, sonst **45 s** ab Dateistart wenn kein Kapitel; **`vad_filter=False`** im Whisper; bis zu **4** Worker; Log **`AudiobookConverter_kapitel.log`**; optional **`AudiobookConverter_listen_logs/`** (App + `--listen-log-dir`); JSON nach stdout.
 - **Merge:** `--phase encode` → **`AudiobookConverter_encoded.m4a`**; `--phase mux` → **`AudiobookConverter_merged.m4a`** (Kapitel-FFmeta, `-codec copy`, encoded-Datei danach weg); `--phase full` weiter für CLI; gleiche MP3-Reihenfolge; paralleles **`ffprobe`**; AAC **`48k`** / **`aac_at`**.
 - **M4B:** **`AudiobookConverter.m4b`** im Projektordner; M4A muss direkt dort liegen (Parent = gewählter Ordner).
 

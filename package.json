@@ -11,6 +11,7 @@
     "test": "jest",
     "test:unit": "jest --watchman=false --testPathIgnorePatterns=App.ui.test",
     "test:coverage": "jest --coverage --watchman=false",
+    "test:chapter-scan": "sh scripts/run_chapter_scan_tests.sh",
     "test:ui:app": "jest --runInBand --watchman=false src/App.ui.test.tsx",
     "icons": "node scripts/generate-app-icons.mjs",
     "windows": "npx @react-native-community/cli run-windows",

@@ -272,7 +272,7 @@ export type LocateChaptersOptions = {
 /**
  * 2. Chapter marks: load `AudiobookConverter_chapters.json` in the project folder when valid
  * (same shape as Whisper output, all file paths still on disk); otherwise transcribe the first
- * ~45 s per MP3 (ffmpeg + faster-whisper). Marks feed step 4 (mux).
+ * First MP3: ~60 s from start (no VAD); others: Silero VAD (preset per Whisper mode) + ~20 s, else ~45 s from start if no chapter. Marks feed step 4 (mux).
  */
 export async function locateChapters(
   options: LocateChaptersOptions,
