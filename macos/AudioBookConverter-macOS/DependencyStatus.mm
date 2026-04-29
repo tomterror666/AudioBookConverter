@@ -927,7 +927,7 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   NSString *ffmpeg = FfmpegExecutablePath();
   if (ffmpeg == nil || ffmpeg.length == 0) {
     reject(@"no_ffmpeg",
-           @"ffmpeg is required (first 45 s per MP3 for Whisper). Install it or check PATH.",
+           @"ffmpeg is required for chapter scan (PCM decode + short ASR clips). Install it or check PATH.",
            nil);
     return;
   }
@@ -989,7 +989,7 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
       [detail appendString:@"…"];
     }
     reject(@"whisper_failed",
-           [NSString stringWithFormat:@"Whisper transcription / chapter scan failed:\n%@", detail],
+           [NSString stringWithFormat:@"Chapter scan failed:\n%@", detail],
            nil);
     return;
   }

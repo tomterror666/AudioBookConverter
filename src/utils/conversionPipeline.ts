@@ -157,7 +157,7 @@ async function nativeDetectChaptersWithWhisper(
 ): Promise<ChapterDetectionResult> {
   if (Platform.OS !== "macos") {
     throw new Error(
-      "Whisper chapter detection is only implemented on macOS.",
+      "Chapter detection is only implemented on macOS.",
     );
   }
   const mod = NativeModules.DependencyStatus as
@@ -313,7 +313,7 @@ export async function locateChapters(
 ): Promise<ChapterDetectionResult> {
   if (Platform.OS !== "macos") {
     throw new Error(
-      "Whisper chapter detection is only implemented on macOS.",
+      "Chapter detection is only implemented on macOS.",
     );
   }
   const root = options.rootDirectory.trim();

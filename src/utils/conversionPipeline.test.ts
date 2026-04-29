@@ -269,7 +269,7 @@ describe("conversionPipeline", () => {
           modelSize: "base",
           device: "cpu",
         }),
-      ).rejects.toThrow("Whisper chapter detection is only implemented on macOS.");
+      ).rejects.toThrow("Chapter detection is only implemented on macOS.");
     });
 
     it("throws when native whisper is missing", async () => {
