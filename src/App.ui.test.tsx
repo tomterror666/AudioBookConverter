@@ -32,7 +32,7 @@ jest.mock("./components/DependencyStatusPanel", () => ({
 
 jest.mock("./utils/googleBooksCover", () => ({
   ...jest.requireActual("./utils/googleBooksCover"),
-  fetchGoogleBooksFirstCover: jest.fn(),
+  fetchGoogleBooksCoverForFolderPath: jest.fn(),
 }));
 
 jest.mock("./utils/conversionPipeline", () => ({
@@ -42,7 +42,7 @@ jest.mock("./utils/conversionPipeline", () => ({
 
 import { openFolder } from "react-native-file-panel";
 import { countMp3Files } from "./utils/conversionPipeline";
-import { fetchGoogleBooksFirstCover } from "./utils/googleBooksCover";
+import { fetchGoogleBooksCoverForFolderPath } from "./utils/googleBooksCover";
 
 function setPlatform(os: string): void {
   Object.defineProperty(Platform, "OS", {
@@ -57,7 +57,7 @@ describe("App UI (user-style queries, mocked IO)", () => {
     setPlatform("windows");
     jest.mocked(openFolder).mockResolvedValue("/audiobooks/PR Test Book");
     jest.mocked(countMp3Files).mockResolvedValue(2);
-    jest.mocked(fetchGoogleBooksFirstCover).mockResolvedValue({
+    jest.mocked(fetchGoogleBooksCoverForFolderPath).mockResolvedValue({
       coverUrl: "https://example.com/cover.jpg",
       title: "Mock volume",
       authors: "Author One",
@@ -93,7 +93,7 @@ describe("App UI (user-style queries, mocked IO)", () => {
     });
     expect(jest.mocked(openFolder)).toHaveBeenCalled();
     await waitFor(() => {
-      expect(jest.mocked(fetchGoogleBooksFirstCover)).toHaveBeenCalled();
+      expect(jest.mocked(fetchGoogleBooksCoverForFolderPath)).toHaveBeenCalled();
     });
   });
 

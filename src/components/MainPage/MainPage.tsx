@@ -55,10 +55,7 @@ import {
   runDependencyChecks,
 } from "../../utils/dependencyStatus";
 import { isCudaDeviceSupportedOnThisPlatform } from "../../utils/deviceCudaSupport";
-import {
-  fetchGoogleBooksFirstCover,
-  perryRhodanSearchQueryFromPath,
-} from "../../utils/googleBooksCover";
+import { fetchGoogleBooksCoverForFolderPath } from "../../utils/googleBooksCover";
 import {
   ConversionCancelledError,
   countMp3Files,
@@ -495,14 +492,11 @@ function MainPageInner(props: {
       setBookCoverPreview({ status: "idle" });
       return;
     }
-    const q = perryRhodanSearchQueryFromPath(selectedDirectory);
-    if (!q) {
-      setBookCoverPreview({ status: "idle" });
-      return;
-    }
     const ac = new AbortController();
     setBookCoverPreview({ status: "loading" });
-    void fetchGoogleBooksFirstCover(q, { signal: ac.signal })
+    void fetchGoogleBooksCoverForFolderPath(selectedDirectory, {
+      signal: ac.signal,
+    })
       .then(result => {
         if (ac.signal.aborted) {
           return;

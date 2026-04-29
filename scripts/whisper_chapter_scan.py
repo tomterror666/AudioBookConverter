@@ -2,12 +2,16 @@
 """
 Chapter layout without per-file “Kapitel N” speech recognition.
 
-1) Special-titles ASR (first 60 s on 1st / 2nd / last MP3): *Zeittafel*, *Prolog*/*Prologue*,
-   *Epilog*. Each distinct file among those slots is transcribed at most once.
+1) Special-titles ASR (first 60 s): *Zeittafel* on the 1st MP3; if missing, the 2nd MP3 is
+   scanned for *Zeittafel* only (new layout: 1st file is often title/author). When *Zeittafel*
+   is found on the 2nd file, one *Zeittafel* chapter spans the 1st+2nd files (single mark at
+   file 1 start) and *Prolog*/*Prologue* is sought on the **3rd** MP3. Legacy layout (word in
+   file 1) keeps *Prolog* on the 2nd file. *Epilog* on the last MP3. Each file is transcribed
+   at most once for these title slots.
 
-2) Chapter-head ASR (first 10 s, every MP3): if the model finds **little or no** usable speech,
+2) Chapter-head ASR (first 5 s, every MP3): if the model finds **little or no** usable speech,
    the head is treated like a music/silence intro → this file can **start** a new numbered
-   chapter. Clear narration in the first 10 s ⇒ **not** that cue. Stored specials (step 1)
+   chapter. Clear narration in the first 5 s ⇒ **not** that cue. Stored specials (step 1)
    never act as such a boundary.
 
 3) If no file qualifies for (2): one *Kapitel 1* span from after Prolog (if found) else after
@@ -42,7 +46,7 @@ SPECIAL_LABEL_TO_NUMBER: dict[str, int] = {
 }
 
 SPECIAL_SCAN_SEC = 60.0
-HEAD_CHAPTER_SCAN_SEC = 10.0
+HEAD_CHAPTER_SCAN_SEC = 5.0
 HEAD_SPEECH_MIN_WORDS_DEFAULT = 4
 HEAD_BRACKET_NOISE_RE = re.compile(r"\[[^\]]*\]")
 
@@ -250,7 +254,8 @@ def head_transcript_word_stats(segments: list) -> tuple[int, int, str]:
 
 def head_intro_like_non_speech(segments: list) -> bool:
     """
-    True ⇒ first ~10 s look non-speech-ish (music, silence, or undecodable) → chapter-boundary cue.
+    True ⇒ first few seconds (~HEAD_CHAPTER_SCAN_SEC) look non-speech-ish (music, silence, or
+    undecodable) → chapter-boundary cue.
     Mirrors the former “music at start” flag.
     """
     nw, alnum, _raw = head_transcript_word_stats(segments)
@@ -358,8 +363,23 @@ def number_chapter_label(num: int, chapter_cue: str) -> str:
 @dataclass
 class SpecialFindings:
     found_zeittafel: bool = False
+    # Title/author on file 1, Zeittafel spoken on file 2 → one Zeittafel chapter spans files 1+2.
+    zeittafel_covers_first_two_files: bool = False
     prolog_label: Optional[str] = None  # "Prolog" or "Prologue"
+    prolog_file_index: Optional[int] = None
     found_epilog: bool = False
+
+
+def _apply_prolog_from_blob(
+    findings: SpecialFindings, blob: str, file_index: int
+) -> None:
+    flags = scan_special_words_on_blob(blob, {"p"})
+    if flags.get("p_prolog"):
+        findings.prolog_label = "Prolog"
+        findings.prolog_file_index = file_index
+    elif flags.get("p_prologue"):
+        findings.prolog_label = "Prologue"
+        findings.prolog_file_index = file_index
 
 
 def collect_special_findings(
@@ -372,49 +392,65 @@ def collect_special_findings(
     Returns findings and map resolved path string -> transcript (for optional listen logs).
     """
     n = len(mp3_list)
-    resolved_to_roles: dict[Path, set[str]] = {}
-    if n >= 1:
-        resolved_to_roles.setdefault(mp3_list[0].resolve(), set()).add("z")
-    if n >= 2:
-        resolved_to_roles.setdefault(mp3_list[1].resolve(), set()).add("p")
-        resolved_to_roles.setdefault(mp3_list[-1].resolve(), set()).add("e")
-    else:
-        resolved_to_roles.setdefault(mp3_list[-1].resolve(), set()).add("e")
-
     findings = SpecialFindings()
     transcripts: dict[str, str] = {}
-    res_to_path: dict[Path, Path] = {}
-    for p in mp3_list:
-        r = p.resolve()
-        if r in resolved_to_roles:
-            res_to_path[r] = p
+    blob_cache: dict[str, str] = {}
 
-    for res, roles in resolved_to_roles.items():
-        mp3_path = res_to_path[res]
+    def path_key(p: Path) -> str:
+        return str(p.resolve())
+
+    def get_text_and_blob(mp3: Path) -> tuple[str, str]:
+        k = path_key(mp3)
+        if k in blob_cache:
+            return transcripts[k], blob_cache[k]
         wav: Optional[Path] = None
         try:
-            wav = extract_temp_wav(ffmpeg_bin, mp3_path, SPECIAL_SCAN_SEC)
+            wav = extract_temp_wav(ffmpeg_bin, mp3, SPECIAL_SCAN_SEC)
             segments = transcribe_segments(model, wav, language)
-            blob = transcript_letters_blob(segments)
-            transcripts[str(res)] = " ".join(
+            text = " ".join(
                 (getattr(s, "text", "") or "").strip() for s in segments
             )
-            flags = scan_special_words_on_blob(blob, roles)
-            if "z" in roles and flags.get("z"):
-                findings.found_zeittafel = True
-            if "p" in roles:
-                if flags.get("p_prolog"):
-                    findings.prolog_label = "Prolog"
-                elif flags.get("p_prologue"):
-                    findings.prolog_label = "Prologue"
-            if "e" in roles and flags.get("e"):
-                findings.found_epilog = True
+            blob = transcript_letters_blob(segments)
+            transcripts[k] = text
+            blob_cache[k] = blob
+            return text, blob
         finally:
             if wav is not None and wav.exists():
                 try:
                     wav.unlink()
                 except OSError:
                     pass
+
+    if n < 1:
+        return findings, transcripts
+
+    _, blob0 = get_text_and_blob(mp3_list[0])
+    z0 = scan_special_words_on_blob(blob0, {"z"}).get("z", False)
+    blob1: Optional[str] = None
+    if n >= 2:
+        _, blob1 = get_text_and_blob(mp3_list[1])
+        z1 = scan_special_words_on_blob(blob1, {"z"}).get("z", False)
+    else:
+        z1 = False
+
+    if z0:
+        findings.found_zeittafel = True
+        findings.zeittafel_covers_first_two_files = False
+    elif z1:
+        findings.found_zeittafel = True
+        findings.zeittafel_covers_first_two_files = True
+
+    if n >= 2 and blob1 is not None:
+        if findings.zeittafel_covers_first_two_files:
+            if n >= 3:
+                _, blob2 = get_text_and_blob(mp3_list[2])
+                _apply_prolog_from_blob(findings, blob2, 2)
+        else:
+            _apply_prolog_from_blob(findings, blob1, 1)
+
+    _, blob_last = get_text_and_blob(mp3_list[-1])
+    if scan_special_words_on_blob(blob_last, {"e"}).get("e"):
+        findings.found_epilog = True
 
     return findings, transcripts
 
@@ -426,8 +462,15 @@ def stored_special_mask(
     m = [False] * n
     if n >= 1 and findings.found_zeittafel:
         m[0] = True
-    if n >= 2 and findings.prolog_label is not None:
-        m[1] = True
+        if findings.zeittafel_covers_first_two_files and n >= 2:
+            m[1] = True
+    pi = findings.prolog_file_index
+    if (
+        pi is not None
+        and findings.prolog_label is not None
+        and 0 <= pi < n
+    ):
+        m[pi] = True
     if n >= 1 and findings.found_epilog:
         m[-1] = True
     return m
@@ -438,10 +481,10 @@ def fallback_body_span(
 ) -> Optional[tuple[int, int]]:
     if n < 1:
         return None
-    if findings.prolog_label is not None:
-        start = 2
+    if findings.prolog_file_index is not None:
+        start = findings.prolog_file_index + 1
     elif findings.found_zeittafel:
-        start = 1
+        start = 2 if findings.zeittafel_covers_first_two_files else 1
     else:
         start = 0
     if findings.found_epilog:
@@ -472,11 +515,16 @@ def build_marks(
                 "label": "Zeittafel",
             }
         )
-    if n >= 2 and findings.prolog_label is not None:
+    pi = findings.prolog_file_index
+    if (
+        pi is not None
+        and findings.prolog_label is not None
+        and 0 <= pi < n
+    ):
         lab = findings.prolog_label
         marks.append(
             {
-                "filePath": resolved[1],
+                "filePath": resolved[pi],
                 "startSec": 0.0,
                 "number": SPECIAL_LABEL_TO_NUMBER[lab],
                 "label": lab,
@@ -539,7 +587,7 @@ def write_listen_sidecar(
     mp3: Path,
     *,
     intro_non_speech_head: bool,
-    head_10_transcript: str,
+    head_scan_transcript: str,
     title_slot_transcript: str,
     de: bool,
 ) -> None:
@@ -561,7 +609,7 @@ def write_listen_sidecar(
             ),
             "",
             f"Transkript Kopf ({HEAD_CHAPTER_SCAN_SEC:.0f} s):",
-            head_10_transcript or "(leer)",
+            head_scan_transcript or "(leer)",
             "",
             "Transkript Titel-Slots (60 s falls diese Datei betroffen):",
             title_slot_transcript or "(nicht für Zeittafel/Prolog/Epilog geladen)",
@@ -578,7 +626,7 @@ def write_listen_sidecar(
             ),
             "",
             f"Head transcript ({HEAD_CHAPTER_SCAN_SEC:.0f} s):",
-            head_10_transcript or "(empty)",
+            head_scan_transcript or "(empty)",
             "",
             "Title-slot transcript (60 s if this file is in those slots):",
             title_slot_transcript or "(not used for Zeittafel/Prolog/Epilog ASR)",
@@ -675,6 +723,8 @@ def main() -> None:
         title_paths.add(mp3_list[-1].resolve())
     else:
         title_paths.add(mp3_list[-1].resolve())
+    if nfiles >= 4:
+        title_paths.add(mp3_list[2].resolve())
     n_title_slots = len(title_paths)
     total_steps = n_title_slots + nfiles
     step = 0
@@ -729,7 +779,7 @@ def main() -> None:
                 root,
                 mp3,
                 intro_non_speech_head=intro_flags[idx],
-                head_10_transcript=head_transcripts[idx],
+                head_scan_transcript=head_transcripts[idx],
                 title_slot_transcript=transcripts.get(str(mp3.resolve()), ""),
                 de=chapter_cue == "de",
             )
