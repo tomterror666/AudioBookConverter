@@ -70,11 +70,16 @@ describe("App UI (user-style queries, mocked IO)", () => {
     expect(screen.getByText("AudioBooks")).toBeOnTheScreen();
   });
 
-  it("keeps Start disabled until folder, mode, and device are chosen (placeholders do not count)", async () => {
+  it("keeps Start disabled until a folder is chosen (mode/device/compute use defaults)", async () => {
     render(<App />);
     await screen.findByText("AudioBookConverter");
     const start = screen.getByText("Start");
     expect(start).toBeDisabled();
+    fireEvent.press(screen.getByText("AudioBooks"));
+    await waitFor(() =>
+      expect(screen.getByText("/audiobooks/PR Test Book")).toBeOnTheScreen(),
+    );
+    await waitFor(() => expect(start).not.toBeDisabled());
   });
 
   it("updates folder path after picker returns (openFolder mocked)", async () => {
@@ -100,13 +105,22 @@ describe("App UI (user-style queries, mocked IO)", () => {
       expect(screen.getByText("/audiobooks/PR Test Book")).toBeOnTheScreen(),
     );
 
-    fireEvent.press(screen.getByText("base"));
+    fireEvent.press(screen.getByText("Weitere Einstellungen"));
+    await waitFor(() => expect(screen.getByText("tiny")).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByText("tiny"));
     expect(await screen.findByText("Modus wählen")).toBeOnTheScreen();
     fireEvent.press(screen.getByText("Übernehmen"));
 
     fireEvent.press(screen.getByText("cpu"));
     expect(await screen.findByText("Gerät wählen")).toBeOnTheScreen();
     fireEvent.press(screen.getByText("Übernehmen"));
+
+    fireEvent(
+      screen.getByTestId("confirmEachConversionStepSwitch"),
+      "valueChange",
+      true,
+    );
 
     await waitFor(() => expect(screen.getByText("Start")).not.toBeDisabled());
     fireEvent.press(screen.getByText("Start"));

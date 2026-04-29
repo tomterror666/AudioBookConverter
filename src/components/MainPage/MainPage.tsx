@@ -4,7 +4,13 @@
  * @format
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ImageLoadEventData, NativeSyntheticEvent } from "react-native";
 import {
   ActivityIndicator,
@@ -18,6 +24,7 @@ import {
   View,
 } from "react-native";
 import { openFolder } from "react-native-file-panel";
+import { Accordion } from "../ui/Accordion";
 import { Box } from "../ui/Box";
 import { SettingsGearOverlay } from "../SettingsGearOverlay";
 import { Progress, ProgressSize } from "../ui/Progress";
@@ -85,6 +92,12 @@ type BookCoverPreviewState =
 /** Placeholder width when cover intrinsic size is unknown (typical book cover ratio). */
 const FOLDER_COVER_DEFAULT_ASPECT = 2 / 3;
 
+type MoreSettingsAccordionLine = {
+  key: string;
+  title: React.ReactElement<typeof Label>;
+  input: () => React.ReactNode;
+};
+
 function MainPageInner(props: {
   chapterCue: ChapterCue;
   setChapterCue: React.Dispatch<React.SetStateAction<ChapterCue>>;
@@ -94,10 +107,10 @@ function MainPageInner(props: {
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(
     null,
   );
-  const [selectedMode, setSelectedMode] = useState<string | null>(null);
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+  const [selectedMode, setSelectedMode] = useState<string | null>("tiny");
+  const [selectedDevice, setSelectedDevice] = useState<string | null>("cpu");
   const [selectedComputeType, setSelectedComputeType] = useState<string | null>(
-    "int8_float32",
+    "float32",
   );
   const [isConverting, setIsConverting] = useState(false);
   const [conversionStep, setConversionStep] = useState(0);
@@ -109,6 +122,15 @@ function MainPageInner(props: {
   >("scan");
   /** Whisper: write per-MP3 transcript `.listen.txt` files under AudiobookConverter_listen_logs. */
   const [writeListenLogs, setWriteListenLogs] = useState(false);
+  /**
+   * When true, conversion shows MP3 count, per-step summary, and success modals.
+   * When false (default), the pipeline runs straight through (use ScrollView if content overflows).
+   */
+  const [confirmEachConversionStep, setConfirmEachConversionStep] =
+    useState(false);
+  const confirmEachConversionStepRef = useRef(false);
+  /** Collapse: Mode / Device / Quantization / Language / Listen log */
+  const [moreSettingsExpanded, setMoreSettingsExpanded] = useState(false);
   const [mergeProgressDone, setMergeProgressDone] = useState(0);
   const [mergeProgressTotal, setMergeProgressTotal] = useState(0);
   const [dependencyStatuses, setDependencyStatuses] =
@@ -159,6 +181,10 @@ function MainPageInner(props: {
 
   const u = useUiCopy();
 
+  useEffect(() => {
+    confirmEachConversionStepRef.current = confirmEachConversionStep;
+  }, [confirmEachConversionStep]);
+
   const coverUriForFolder =
     bookCoverPreview.status === "ok" ? bookCoverPreview.uri : null;
 
@@ -190,12 +216,16 @@ function MainPageInner(props: {
   );
 
   const askMp3CountConfirmation = useCallback(
-    (count: number): Promise<boolean> =>
-      new Promise(resolve => {
+    (count: number): Promise<boolean> => {
+      if (!confirmEachConversionStepRef.current) {
+        return Promise.resolve(true);
+      }
+      return new Promise(resolve => {
         setPendingMp3Count(count);
         setMp3ConfirmVisible(true);
         mp3ConfirmResolver.current = resolve;
-      }),
+      });
+    },
     [],
   );
 
@@ -208,8 +238,11 @@ function MainPageInner(props: {
   }, []);
 
   const askStep2Summary = useCallback(
-    (chapterCount: number, chapterLabels: string[]): Promise<void> =>
-      new Promise(resolve => {
+    (chapterCount: number, chapterLabels: string[]): Promise<void> => {
+      if (!confirmEachConversionStepRef.current) {
+        return Promise.resolve();
+      }
+      return new Promise(resolve => {
         const shown = chapterLabels.slice(0, 12);
         const remaining = Math.max(0, chapterLabels.length - shown.length);
         const listPart =
@@ -223,7 +256,8 @@ function MainPageInner(props: {
         );
         setStep2SummaryVisible(true);
         step2SummaryResolver.current = resolve;
-      }),
+      });
+    },
     [u],
   );
 
@@ -236,12 +270,16 @@ function MainPageInner(props: {
   }, []);
 
   const askStep3EncodeSummary = useCallback(
-    (encodedPath: string): Promise<void> =>
-      new Promise(resolve => {
+    (encodedPath: string): Promise<void> => {
+      if (!confirmEachConversionStepRef.current) {
+        return Promise.resolve();
+      }
+      return new Promise(resolve => {
         setStep3EncodeSummaryContent(u.step3Summary(encodedPath));
         setStep3EncodeSummaryVisible(true);
         step3EncodeSummaryResolver.current = resolve;
-      }),
+      });
+    },
     [u],
   );
 
@@ -254,12 +292,16 @@ function MainPageInner(props: {
   }, []);
 
   const askStep4MuxSummary = useCallback(
-    (mergedPath: string): Promise<void> =>
-      new Promise(resolve => {
+    (mergedPath: string): Promise<void> => {
+      if (!confirmEachConversionStepRef.current) {
+        return Promise.resolve();
+      }
+      return new Promise(resolve => {
         setStep4MuxSummaryContent(u.step4Summary(mergedPath));
         setStep4MuxSummaryVisible(true);
         step4MuxSummaryResolver.current = resolve;
-      }),
+      });
+    },
     [u],
   );
 
@@ -272,12 +314,16 @@ function MainPageInner(props: {
   }, []);
 
   const showM4bSuccess = useCallback(
-    (m4bPath: string): Promise<void> =>
-      new Promise(resolve => {
+    (m4bPath: string): Promise<void> => {
+      if (!confirmEachConversionStepRef.current) {
+        return Promise.resolve();
+      }
+      return new Promise(resolve => {
         setM4bSuccessContent(u.m4bSuccess(m4bPath));
         setM4bSuccessVisible(true);
         m4bSuccessResolver.current = resolve;
-      }),
+      });
+    },
     [u],
   );
 
@@ -551,6 +597,212 @@ function MainPageInner(props: {
     }
   };
 
+  const moreSettingsLines = useMemo<MoreSettingsAccordionLine[]>(
+    () => [
+      {
+        key: "mode",
+        title: (
+          <Label
+            title="Mode:"
+            variant={LabelVariant.NormalBold}
+            align={LabelAlign.Left}
+          />
+        ),
+        input: () => (
+          <InputField
+            wrapperStyle={styles.modeInputWrapper}
+            onPress={handleModePress}
+            value={selectedMode}
+            placeholder="tiny"
+          />
+        ),
+      },
+      {
+        key: "device",
+        title: (
+          <Label
+            title="Device:"
+            variant={LabelVariant.NormalBold}
+            align={LabelAlign.Left}
+          />
+        ),
+        input: () => (
+          <InputField
+            wrapperStyle={styles.deviceInputWrapper}
+            onPress={handleDevicePress}
+            value={selectedDevice}
+            placeholder="cpu"
+          />
+        ),
+      },
+      {
+        key: "computeType",
+        title: (
+          <Label
+            title={u.labelComputeType}
+            variant={LabelVariant.NormalBold}
+            align={LabelAlign.Left}
+          />
+        ),
+        input: () => (
+          <InputField
+            wrapperStyle={styles.computeTypeInputWrapper}
+            onPress={handleComputeTypePress}
+            value={selectedComputeType}
+            placeholder="float32"
+          />
+        ),
+      },
+      {
+        key: "chapterCue",
+        title: (
+          <Label
+            title={u.labelChapterCue}
+            variant={LabelVariant.NormalBold}
+            align={LabelAlign.Left}
+          />
+        ),
+        input: () => (
+          <View style={styles.chapterCueInputWrapper}>
+            <View style={styles.chapterCueBox}>
+              <View style={styles.chapterCueControls}>
+                <Label
+                  title="German"
+                  variant={LabelVariant.Normal}
+                  color={
+                    chapterCue === "de" ? Color.gray900 : Color.gray500
+                  }
+                  align={LabelAlign.Left}
+                />
+                <Switch
+                  value={chapterCue === "en"}
+                  onValueChange={v => setChapterCue(v ? "en" : "de")}
+                  trackColor={{
+                    false: Color.gray300,
+                    true: Color.primary,
+                  }}
+                />
+                <Label
+                  title="English"
+                  variant={LabelVariant.Normal}
+                  color={
+                    chapterCue === "en" ? Color.gray900 : Color.gray500
+                  }
+                  align={LabelAlign.Left}
+                />
+              </View>
+            </View>
+          </View>
+        ),
+      },
+      {
+        key: "listenLog",
+        title: (
+          <Label
+            title={u.labelListenLog}
+            variant={LabelVariant.NormalBold}
+            align={LabelAlign.Left}
+          />
+        ),
+        input: () => (
+          <View style={styles.chapterCueInputWrapper}>
+            <View style={styles.chapterCueBox}>
+              <View style={styles.chapterCueControls}>
+                <Label
+                  title={chapterCue === "de" ? "Aus" : "Off"}
+                  variant={LabelVariant.Normal}
+                  color={
+                    !writeListenLogs ? Color.gray900 : Color.gray500
+                  }
+                  align={LabelAlign.Left}
+                />
+                <Switch
+                  value={writeListenLogs}
+                  onValueChange={setWriteListenLogs}
+                  trackColor={{
+                    false: Color.gray300,
+                    true: Color.primary,
+                  }}
+                />
+                <Label
+                  title={chapterCue === "de" ? "Ein" : "On"}
+                  variant={LabelVariant.Normal}
+                  color={
+                    writeListenLogs ? Color.gray900 : Color.gray500
+                  }
+                  align={LabelAlign.Left}
+                />
+              </View>
+            </View>
+          </View>
+        ),
+      },
+      {
+        key: "confirmEachStep",
+        title: (
+          <Label
+            title={u.labelConfirmEachStep}
+            variant={LabelVariant.NormalBold}
+            align={LabelAlign.Left}
+          />
+        ),
+        input: () => (
+          <View style={styles.chapterCueInputWrapper}>
+            <View style={styles.chapterCueBox}>
+              <View style={styles.chapterCueControls}>
+                <Label
+                  title={chapterCue === "de" ? "Aus" : "Off"}
+                  variant={LabelVariant.Normal}
+                  color={
+                    !confirmEachConversionStep
+                      ? Color.gray900
+                      : Color.gray500
+                  }
+                  align={LabelAlign.Left}
+                />
+                <Switch
+                  testID="confirmEachConversionStepSwitch"
+                  value={confirmEachConversionStep}
+                  onValueChange={setConfirmEachConversionStep}
+                  trackColor={{
+                    false: Color.gray300,
+                    true: Color.primary,
+                  }}
+                />
+                <Label
+                  title={chapterCue === "de" ? "Ein" : "On"}
+                  variant={LabelVariant.Normal}
+                  color={
+                    confirmEachConversionStep
+                      ? Color.gray900
+                      : Color.gray500
+                  }
+                  align={LabelAlign.Left}
+                />
+              </View>
+            </View>
+          </View>
+        ),
+      },
+    ],
+    [
+      chapterCue,
+      confirmEachConversionStep,
+      handleComputeTypePress,
+      handleDevicePress,
+      handleModePress,
+      selectedComputeType,
+      selectedDevice,
+      selectedMode,
+      setChapterCue,
+      u.labelChapterCue,
+      u.labelComputeType,
+      u.labelConfirmEachStep,
+      u.labelListenLog,
+      writeListenLogs,
+    ],
+  );
+
   const formComplete =
     typeof selectedDirectory === "string" &&
     selectedDirectory.trim().length > 0 &&
@@ -800,131 +1052,29 @@ function MainPageInner(props: {
                     </View>
                   </View>
                 </View>
-                <View style={styles.modeRow}>
-                  <View style={styles.fieldLabelContainer}>
+                <Accordion
+                  expanded={moreSettingsExpanded}
+                  onExpandedChange={setMoreSettingsExpanded}
+                  style={styles.moreSettingsAccordionRoot}
+                  title={
                     <Label
-                      title="Mode:"
+                      title={u.labelMoreSettings}
                       variant={LabelVariant.NormalBold}
                       align={LabelAlign.Left}
+                      numberOfLines={1}
                     />
-                  </View>
-                  <InputField
-                    wrapperStyle={styles.modeInputWrapper}
-                    onPress={handleModePress}
-                    value={selectedMode}
-                    placeholder="base"
-                  />
-                </View>
-                <View style={styles.deviceRow}>
-                  <View style={styles.fieldLabelContainer}>
-                    <Label
-                      title="Device:"
-                      variant={LabelVariant.NormalBold}
-                      align={LabelAlign.Left}
-                    />
-                  </View>
-                  <InputField
-                    wrapperStyle={styles.deviceInputWrapper}
-                    onPress={handleDevicePress}
-                    value={selectedDevice}
-                    placeholder="cpu"
-                  />
-                </View>
-                <View style={styles.computeTypeRow}>
-                  <View style={styles.fieldLabelContainer}>
-                    <Label
-                      title={u.labelComputeType}
-                      variant={LabelVariant.NormalBold}
-                      align={LabelAlign.Left}
-                    />
-                  </View>
-                  <InputField
-                    wrapperStyle={styles.computeTypeInputWrapper}
-                    onPress={handleComputeTypePress}
-                    value={selectedComputeType}
-                    placeholder="int8_float32"
-                  />
-                </View>
-                <View style={styles.chapterCueRow}>
-                  <View style={styles.fieldLabelContainer}>
-                    <Label
-                      title={u.labelChapterCue}
-                      variant={LabelVariant.NormalBold}
-                      align={LabelAlign.Left}
-                    />
-                  </View>
-                  <View style={styles.chapterCueInputWrapper}>
-                    <View style={styles.chapterCueBox}>
-                      <View style={styles.chapterCueControls}>
-                        <Label
-                          title="German"
-                          variant={LabelVariant.Normal}
-                          color={
-                            chapterCue === "de" ? Color.gray900 : Color.gray500
-                          }
-                          align={LabelAlign.Left}
-                        />
-                        <Switch
-                          value={chapterCue === "en"}
-                          onValueChange={v => setChapterCue(v ? "en" : "de")}
-                          trackColor={{
-                            false: Color.gray300,
-                            true: Color.primary,
-                          }}
-                        />
-                        <Label
-                          title="English"
-                          variant={LabelVariant.Normal}
-                          color={
-                            chapterCue === "en"
-                              ? Color.gray900
-                              : Color.gray500
-                          }
-                          align={LabelAlign.Left}
-                        />
+                  }>
+                  {moreSettingsLines.map(line => (
+                    <View
+                      key={line.key}
+                      style={[styles.modeRow, styles.settingsRowInAccordion]}>
+                      <View style={styles.fieldLabelContainer}>
+                        {line.title}
                       </View>
+                      {line.input()}
                     </View>
-                  </View>
-                </View>
-                <View style={styles.listenLogRow}>
-                  <View style={styles.fieldLabelContainer}>
-                    <Label
-                      title={u.labelListenLog}
-                      variant={LabelVariant.NormalBold}
-                      align={LabelAlign.Left}
-                    />
-                  </View>
-                  <View style={styles.chapterCueInputWrapper}>
-                    <View style={styles.chapterCueBox}>
-                      <View style={styles.chapterCueControls}>
-                        <Label
-                          title={chapterCue === "de" ? "Aus" : "Off"}
-                          variant={LabelVariant.Normal}
-                          color={
-                            !writeListenLogs ? Color.gray900 : Color.gray500
-                          }
-                          align={LabelAlign.Left}
-                        />
-                        <Switch
-                          value={writeListenLogs}
-                          onValueChange={setWriteListenLogs}
-                          trackColor={{
-                            false: Color.gray300,
-                            true: Color.primary,
-                          }}
-                        />
-                        <Label
-                          title={chapterCue === "de" ? "Ein" : "On"}
-                          variant={LabelVariant.Normal}
-                          color={
-                            writeListenLogs ? Color.gray900 : Color.gray500
-                          }
-                          align={LabelAlign.Left}
-                        />
-                      </View>
-                    </View>
-                  </View>
-                </View>
+                  ))}
+                </Accordion>
                 <View style={styles.startButtonWrapper}>
                   <Button
                     variant={ButtonVariant.Primary}

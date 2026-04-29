@@ -14,6 +14,10 @@ export type UiCopy = {
   labelChapterCue: string;
   /** Whisper step: save per-MP3 transcript logs under AudiobookConverter_listen_logs. */
   labelListenLog: string;
+  /** Accordion: Mode, Device, compute, language, listen log. */
+  labelMoreSettings: string;
+  /** Accordion: pause for confirmation modals after each conversion step. */
+  labelConfirmEachStep: string;
   /** faster-whisper quantization / precision (matches native allowlist). */
   labelComputeType: string;
   startButton: string;
@@ -82,6 +86,8 @@ const de: UiCopy = {
   },
   labelChapterCue: "Sprache:",
   labelListenLog: "Hör-Protokoll:",
+  labelMoreSettings: "Weitere Einstellungen",
+  labelConfirmEachStep: "Ergebnisdialoge:",
   labelComputeType: "Quantisierung:",
   startButton: "Start",
   mp3Modal: {
@@ -178,6 +184,8 @@ const en: UiCopy = {
   },
   labelChapterCue: "Language:",
   labelListenLog: "Listen log:",
+  labelMoreSettings: "More settings",
+  labelConfirmEachStep: "Step prompts:",
   labelComputeType: "Compute:",
   startButton: "Start",
   mp3Modal: {

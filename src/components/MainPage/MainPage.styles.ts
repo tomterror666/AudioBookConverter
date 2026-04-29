@@ -25,7 +25,6 @@ export const styles = StyleSheet.create({
     minHeight: 0,
   },
   mainScrollContent: {
-    flexGrow: 1,
     paddingBottom: 48,
   },
   contentRow: {
@@ -70,6 +69,14 @@ export const styles = StyleSheet.create({
   fieldLabelContainer: {
     width: 130,
     justifyContent: "center",
+  },
+  /** Wrapper for `Accordion` more-settings section (spacing below path row). */
+  moreSettingsAccordionRoot: {
+    marginTop: 32,
+  },
+  /** Remove default row top margin when spacing comes from accordion panel gap. */
+  settingsRowInAccordion: {
+    marginTop: 0,
   },
   modeRow: {
     flexDirection: "row",
@@ -169,11 +176,12 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 26,
   },
+  /** Sits under More settings; keep compact when accordion is collapsed (opens → ScrollView scrolls). */
   startButtonWrapper: {
-    marginTop: 64,
+    marginTop: 32,
   },
   conversionStepsListPanel: {
-    marginTop: 48,
+    marginTop: 32,
     alignSelf: "flex-start",
     backgroundColor: "#FFFFFF",
     borderWidth: 1,

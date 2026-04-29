@@ -25,8 +25,8 @@ static BOOL AUBKHasInstalledPythonInfoMenu = NO;
 }
 
 static const CGFloat kAUBKInitialContentWidth = 850;
-/** Tall enough for main form + conversion steps list + `mainScrollContent` bottom inset (48 pt). */
-static const CGFloat kAUBKInitialContentHeight = 960;
+/** Fixed content height; main form scrolls when “More settings” expands. Window is not resized from JS. */
+static const CGFloat kAUBKInitialContentHeight = 530;
 
 - (void)loadReactNativeWindow:(NSDictionary *)launchOptions
 {
