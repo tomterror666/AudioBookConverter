@@ -1583,6 +1583,44 @@ RCT_REMAP_METHOD(selectDirectory,
   });
 }
 
+/// Multi-select folder panel (macOS). Returns NSArray of path strings, or NSNull if cancelled / empty.
+RCT_REMAP_METHOD(selectDirectories,
+                 selectDirectoriesWithResolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = NO;
+    panel.canChooseDirectories = YES;
+    panel.allowsMultipleSelection = YES;
+    panel.canCreateDirectories = YES;
+    panel.prompt = @"Choose";
+
+    NSModalResponse response = [panel runModal];
+    if (response == NSModalResponseOK) {
+      NSArray<NSURL *> *urls = panel.URLs;
+      NSMutableArray<NSString *> *paths = [NSMutableArray array];
+      for (NSURL *url in urls) {
+        NSString *p = url.path;
+        if (p != nil && p.length > 0) {
+          [paths addObject:p];
+        }
+      }
+      if (paths.count > 0) {
+        resolve(paths);
+        return;
+      }
+      resolve([NSNull null]);
+      return;
+    }
+    if (response == NSModalResponseCancel) {
+      resolve([NSNull null]);
+      return;
+    }
+    reject(@"open_panel_failed", @"Folder selection failed.", nil);
+  });
+}
+
 RCT_REMAP_METHOD(checkAll, checkAllWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{

@@ -21,6 +21,10 @@ export type UiCopy = {
   /** faster-whisper quantization / precision (matches native allowlist). */
   labelComputeType: string;
   startButton: string;
+  /** Shown above conversion steps when converting multiple folders (macOS batch). */
+  batchFolderProgress: (current: number, total: number) => string;
+  /** Path field when more than one folder is selected (macOS). */
+  folderMultiHint: (extraCount: number) => string;
   mp3Modal: {
     headline: string;
     fileLine: (n: number) => string;
@@ -90,6 +94,8 @@ const de: UiCopy = {
   labelConfirmEachStep: "Ergebnisdialoge:",
   labelComputeType: "Quantisierung:",
   startButton: "Start",
+  batchFolderProgress: (current, total) => `Ordner ${current} von ${total}`,
+  folderMultiHint: extraCount => ` (+${extraCount} weitere)`,
   mp3Modal: {
     headline: "MP3-Dateien",
     fileLine: n =>
@@ -188,6 +194,8 @@ const en: UiCopy = {
   labelConfirmEachStep: "Step prompts:",
   labelComputeType: "Compute:",
   startButton: "Start",
+  batchFolderProgress: (current, total) => `Folder ${current} of ${total}`,
+  folderMultiHint: extraCount => ` (+${extraCount} more)`,
   mp3Modal: {
     headline: "MP3 files",
     fileLine: n =>

@@ -69,8 +69,19 @@ import {
 } from "../../utils/conversionPipeline";
 import { styles } from "./MainPage.styles";
 
+function pathBasenameForDisplay(p: string): string {
+  const t = p.trim();
+  if (!t) {
+    return "";
+  }
+  const parts = t.split(/[/\\]/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1]! : t;
+}
+
 type DependencyStatusNativeModule = {
   selectDirectory?: () => Promise<string | null>;
+  /** macOS: multi-select folder panel → ordered paths */
+  selectDirectories?: () => Promise<string[] | null | undefined>;
 };
 
 type BookCoverPreviewState =
@@ -101,9 +112,7 @@ function MainPageInner(props: {
 }): React.JSX.Element {
   const { chapterCue, setChapterCue } = props;
   const [progress, setProgress] = useState(0);
-  const [selectedDirectory, setSelectedDirectory] = useState<string | null>(
-    null,
-  );
+  const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
   const [selectedMode, setSelectedMode] = useState<string | null>("tiny");
   const [selectedDevice, setSelectedDevice] = useState<string | null>("cpu");
   const [selectedComputeType, setSelectedComputeType] = useState<string | null>(
@@ -169,6 +178,11 @@ function MainPageInner(props: {
   );
   const [bookCoverPreview, setBookCoverPreview] =
     useState<BookCoverPreviewState>({ status: "idle" });
+  /** macOS batch: shown above step list when converting more than one folder */
+  const [batchQueueProgress, setBatchQueueProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
   const googleBooksM4bMetaRef = useRef<AudiobookM4bMetadata | null>(null);
   const [folderInputRowHeight, setFolderInputRowHeight] = useState(44);
   const [coverIntrinsicSize, setCoverIntrinsicSize] = useState<{
@@ -177,6 +191,22 @@ function MainPageInner(props: {
   } | null>(null);
 
   const u = useUiCopy();
+
+  const folderListTrimmed = useMemo(
+    () => selectedFolders.map(f => f.trim()).filter(f => f.length > 0),
+    [selectedFolders],
+  );
+
+  const folderFieldValue = useMemo(() => {
+    if (folderListTrimmed.length === 0) {
+      return null;
+    }
+    if (folderListTrimmed.length === 1) {
+      return folderListTrimmed[0]!;
+    }
+    const base = pathBasenameForDisplay(folderListTrimmed[0]!);
+    return `${base}${u.folderMultiHint(folderListTrimmed.length - 1)}`;
+  }, [folderListTrimmed, u]);
 
   useEffect(() => {
     confirmEachConversionStepRef.current = confirmEachConversionStep;
@@ -488,13 +518,17 @@ function MainPageInner(props: {
   }, []);
 
   useEffect(() => {
-    if (!selectedDirectory?.trim()) {
+    if (isConverting) {
+      return;
+    }
+    const path = folderListTrimmed[0];
+    if (!path?.trim()) {
       setBookCoverPreview({ status: "idle" });
       return;
     }
     const ac = new AbortController();
     setBookCoverPreview({ status: "loading" });
-    void fetchGoogleBooksCoverForFolderPath(selectedDirectory, {
+    void fetchGoogleBooksCoverForFolderPath(path, {
       signal: ac.signal,
     })
       .then(result => {
@@ -512,14 +546,33 @@ function MainPageInner(props: {
           setBookCoverPreview({ status: "empty" });
         }
       })
-      .catch((error) => {
+      .catch(() => {
         if (ac.signal.aborted) {
           return;
         }
         setBookCoverPreview({ status: "error" });
       });
     return () => ac.abort();
-  }, [selectedDirectory]);
+  }, [folderListTrimmed, isConverting]);
+
+  const refreshCoverForConversionJob = useCallback(async (root: string) => {
+    setBookCoverPreview({ status: "loading" });
+    try {
+      const result = await fetchGoogleBooksCoverForFolderPath(root);
+      if (result) {
+        setBookCoverPreview({
+          status: "ok",
+          uri: result.coverUrl,
+          title: result.title,
+          authors: result.authors,
+        });
+      } else {
+        setBookCoverPreview({ status: "empty" });
+      }
+    } catch {
+      setBookCoverPreview({ status: "error" });
+    }
+  }, []);
 
   const handleVerzeichnisPress = async () => {
     try {
@@ -527,17 +580,27 @@ function MainPageInner(props: {
         const mod = NativeModules.DependencyStatus as
           | DependencyStatusNativeModule
           | undefined;
-        const path =
-          typeof mod?.selectDirectory === "function"
-            ? await mod.selectDirectory()
-            : null;
-        if (path) {
-          setSelectedDirectory(path);
+        if (typeof mod?.selectDirectories === "function") {
+          const paths = await mod.selectDirectories();
+          if (paths != null && Array.isArray(paths) && paths.length > 0) {
+            const cleaned = paths.filter(
+              (p): p is string =>
+                typeof p === "string" && p.trim().length > 0,
+            );
+            if (cleaned.length > 0) {
+              setSelectedFolders(cleaned);
+            }
+          }
+        } else if (typeof mod?.selectDirectory === "function") {
+          const path = await mod.selectDirectory();
+          if (path && typeof path === "string" && path.trim().length > 0) {
+            setSelectedFolders([path.trim()]);
+          }
         }
       } else if (Platform.OS === "windows") {
         const path = await openFolder();
-        if (path) {
-          setSelectedDirectory(path);
+        if (path && path.trim().length > 0) {
+          setSelectedFolders([path.trim()]);
         }
       } else {
         showInfoModal(
@@ -798,8 +861,7 @@ function MainPageInner(props: {
   );
 
   const formComplete =
-    typeof selectedDirectory === "string" &&
-    selectedDirectory.trim().length > 0 &&
+    folderListTrimmed.length > 0 &&
     selectedMode != null &&
     selectedMode.trim().length > 0 &&
     selectedDevice != null &&
@@ -841,12 +903,7 @@ function MainPageInner(props: {
       return;
     }
     const missing: string[] = [];
-    if (
-      !(
-        typeof selectedDirectory === "string" &&
-        selectedDirectory.trim().length > 0
-      )
-    ) {
+    if (folderListTrimmed.length === 0) {
       missing.push(u.missingFieldToken.folder);
     }
     if (!(selectedMode != null && selectedMode.trim().length > 0)) {
@@ -881,72 +938,82 @@ function MainPageInner(props: {
     }
 
     void (async () => {
+      const folders = folderListTrimmed.slice();
       setIsConverting(true);
       setConversionStepsListComplete(false);
+      setBatchQueueProgress(null);
       try {
-        setConversionStep(1);
-        const mp3Count = await countMp3Files(selectedDirectory!.trim());
-        const confirmed = await askMp3CountConfirmation(mp3Count);
-        if (!confirmed) {
-          throw new ConversionCancelledError();
+        for (let i = 0; i < folders.length; i++) {
+          const root = folders[i]!;
+          if (i > 0) {
+            setConversionStepsListComplete(false);
+          }
+          if (folders.length > 1) {
+            setBatchQueueProgress({
+              current: i + 1,
+              total: folders.length,
+            });
+          }
+          await refreshCoverForConversionJob(root);
+
+          setConversionStep(1);
+          const mp3Count = await countMp3Files(root);
+          const confirmed = await askMp3CountConfirmation(mp3Count);
+          if (!confirmed) {
+            throw new ConversionCancelledError();
+          }
+          setMp3FileTotal(mp3Count);
+          setConversionStep(2);
+          setWhisperMp3Done(0);
+          setWhisperModelPhase("scan");
+          setProgress(0);
+          const chapterMarks = await locateChapters({
+            rootDirectory: root,
+            modelSize: selectedMode!.trim(),
+            device: selectedDevice!.trim().toLowerCase(),
+            computeType: selectedComputeType!.trim().toLowerCase(),
+            chapterCue,
+            writeListenLogs,
+          });
+          if (chapterMarks.usedChapterCache && mp3Count > 0) {
+            setWhisperMp3Done(mp3Count);
+          }
+          setProgress(1);
+          await askStep2Summary(
+            chapterMarks.marks.length,
+            chapterMarks.marks.map(mark => mark.label),
+          );
+          setConversionStep(3);
+          setMergeProgressDone(0);
+          setMergeProgressTotal(0);
+          setProgress(0);
+          const encodedPath = await createEncodedAudiobookTrack(root);
+          await askStep3EncodeSummary(encodedPath);
+          setConversionStep(4);
+          setMergeProgressDone(0);
+          setMergeProgressTotal(0);
+          setProgress(0);
+          const mergedPath = await muxChaptersIntoMergedM4a(
+            root,
+            chapterMarks,
+          );
+          await askStep4MuxSummary(mergedPath);
+          setConversionStep(5);
+          setProgress(0);
+          const metaNow = googleBooksM4bMetaRef.current;
+          const hasAnyMeta =
+            metaNow &&
+            (Boolean(metaNow.coverUrl?.trim()) ||
+              Boolean(metaNow.title?.trim()) ||
+              Boolean(metaNow.author?.trim()));
+          const m4bPath = await createAudiobookFile(
+            mergedPath,
+            root,
+            hasAnyMeta ? metaNow : null,
+          );
+          await showM4bSuccess(m4bPath);
+          setConversionStepsListComplete(true);
         }
-        setMp3FileTotal(mp3Count);
-        setConversionStep(2);
-        setWhisperMp3Done(0);
-        setWhisperModelPhase("scan");
-        setProgress(0);
-        const chapterMarks = await locateChapters({
-          rootDirectory: selectedDirectory!.trim(),
-          modelSize: selectedMode!.trim(),
-          device: selectedDevice!.trim().toLowerCase(),
-          computeType: selectedComputeType!.trim().toLowerCase(),
-          chapterCue,
-          writeListenLogs,
-        });
-        if (
-          chapterMarks.usedChapterCache &&
-          mp3FileTotal != null &&
-          mp3FileTotal > 0
-        ) {
-          setWhisperMp3Done(mp3FileTotal);
-        }
-        setProgress(1);
-        await askStep2Summary(
-          chapterMarks.marks.length,
-          chapterMarks.marks.map(mark => mark.label),
-        );
-        setConversionStep(3);
-        setMergeProgressDone(0);
-        setMergeProgressTotal(0);
-        setProgress(0);
-        const encodedPath = await createEncodedAudiobookTrack(
-          selectedDirectory!.trim(),
-        );
-        await askStep3EncodeSummary(encodedPath);
-        setConversionStep(4);
-        setMergeProgressDone(0);
-        setMergeProgressTotal(0);
-        setProgress(0);
-        const mergedPath = await muxChaptersIntoMergedM4a(
-          selectedDirectory!.trim(),
-          chapterMarks,
-        );
-        await askStep4MuxSummary(mergedPath);
-        setConversionStep(5);
-        setProgress(0);
-        const metaNow = googleBooksM4bMetaRef.current;
-        const hasAnyMeta =
-          metaNow &&
-          (Boolean(metaNow.coverUrl?.trim()) ||
-            Boolean(metaNow.title?.trim()) ||
-            Boolean(metaNow.author?.trim()));
-        const m4bPath = await createAudiobookFile(
-          mergedPath,
-          selectedDirectory!.trim(),
-          hasAnyMeta ? metaNow : null,
-        );
-        await showM4bSuccess(m4bPath);
-        setConversionStepsListComplete(true);
       } catch (e) {
         setConversionStepsListComplete(false);
         if (isConversionCancelled(e)) {
@@ -964,6 +1031,7 @@ function MainPageInner(props: {
         setMergeProgressDone(0);
         setMergeProgressTotal(0);
         setProgress(0);
+        setBatchQueueProgress(null);
         setIsConverting(false);
       }
     })();
@@ -1011,7 +1079,7 @@ function MainPageInner(props: {
                       <InputField
                         wrapperStyle={styles.pathInputFieldWrapper}
                         onPress={handleVerzeichnisPress}
-                        value={selectedDirectory}
+                        value={folderFieldValue}
                         placeholder="AudioBooks"
                         numberOfLines={1}
                         ellipsizeMode="middle"
@@ -1078,6 +1146,22 @@ function MainPageInner(props: {
                   </Button>
                 </View>
                 <View style={styles.conversionStepsListPanel}>
+                  {batchQueueProgress != null &&
+                  batchQueueProgress.total > 1 &&
+                  isConverting ? (
+                    <View style={styles.batchQueueProgressLabel}>
+                      <Label
+                        title={u.batchFolderProgress(
+                          batchQueueProgress.current,
+                          batchQueueProgress.total,
+                        )}
+                        variant={LabelVariant.NormalBold}
+                        color={Color.gray800}
+                        align={LabelAlign.Left}
+                        numberOfLines={1}
+                      />
+                    </View>
+                  ) : null}
                   <View style={styles.conversionStepsList}>
                     {([1, 2, 3, 4, 5] as const).map(step => (
                       <View key={step} style={styles.conversionStepListRow}>

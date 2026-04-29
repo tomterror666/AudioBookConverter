@@ -192,6 +192,10 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 16,
     overflow: "hidden",
   },
+  batchQueueProgressLabel: {
+    marginBottom: 10,
+    alignSelf: "flex-start",
+  },
   conversionStepsList: {
     gap: 8,
     alignSelf: "flex-start",
