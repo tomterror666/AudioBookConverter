@@ -45,6 +45,10 @@ export const CHAPTER_MARKS_CACHE_BASENAME = "AudiobookConverter_chapters.json";
 export const LISTEN_LOGS_DIRECTORY_BASENAME =
   "AudiobookConverter_listen_logs" as const;
 
+/** FFmpeg-filtered head WAVs for listening (same as Whisper input); cleared with listen logs when enabled. */
+export const FILTERED_PREVIEW_DIRECTORY_BASENAME =
+  "AudiobookConverter_filtered_preview" as const;
+
 export type ChapterDetectionResult = {
   marks: ChapterMark[];
   /** Cue used for labels / mux (`de` = Kapitel, `en` = Chapter). Omitted → `de`. */
@@ -127,12 +131,13 @@ async function nativeReadChapterMarksCacheIfPresent(
   return raw;
 }
 
+/** Removes `LISTEN_LOGS_DIRECTORY_BASENAME` and `FILTERED_PREVIEW_DIRECTORY_BASENAME` under root when logging is on. */
 async function nativeClearListenLogsDirectory(
   rootDirectory: string,
 ): Promise<void> {
   if (Platform.OS !== "macos") {
     throw new Error(
-      "Listen log cleanup is only implemented on macOS.",
+      "Listen log / filtered-preview cleanup is only implemented on macOS.",
     );
   }
   const mod = NativeModules.DependencyStatus as
@@ -298,7 +303,8 @@ export type LocateChaptersOptions = {
   chapterCue?: ChapterCue;
   /**
    * When true, Whisper writes one `.listen.txt` per MP3 under
-   * `AudiobookConverter_listen_logs` in the project folder (recognized words / transcript).
+   * `AudiobookConverter_listen_logs`, and FFmpeg-filtered head WAVs under
+   * `AudiobookConverter_filtered_preview` (same audio Whisper receives), for debugging/listening.
    */
   writeListenLogs?: boolean;
 };

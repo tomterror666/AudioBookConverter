@@ -860,7 +860,12 @@ static NSString *AUBKListenLogsFolderName(void)
   return @"AudiobookConverter_listen_logs";
 }
 
-/// Removes `<root>/AudiobookConverter_listen_logs` if present (fresh listen logs each run).
+static NSString *AUBKFilteredPreviewFolderName(void)
+{
+  return @"AudiobookConverter_filtered_preview";
+}
+
+/// Removes `<root>/AudiobookConverter_listen_logs` and filtered-preview WAV folder if present.
 static void ClearListenLogsDirectoryResolved(NSString *rootDir,
                                              RCTPromiseResolveBlock resolve,
                                              RCTPromiseRejectBlock reject)
@@ -880,13 +885,24 @@ static void ClearListenLogsDirectoryResolved(NSString *rootDir,
     reject(@"notdir", @"The path is not a directory.", nil);
     return;
   }
+  NSError *err = nil;
   NSString *listenLogsPath =
       [stdRoot stringByAppendingPathComponent:AUBKListenLogsFolderName()];
-  NSError *err = nil;
   if ([fm fileExistsAtPath:listenLogsPath]) {
     if (![fm removeItemAtPath:listenLogsPath error:&err]) {
       reject(@"cleanup_failed",
              [NSString stringWithFormat:@"Could not remove listen logs folder: %@",
+                                        err.localizedDescription ?: @"unknown"],
+             err);
+      return;
+    }
+  }
+  NSString *filteredPreviewPath =
+      [stdRoot stringByAppendingPathComponent:AUBKFilteredPreviewFolderName()];
+  if ([fm fileExistsAtPath:filteredPreviewPath]) {
+    if (![fm removeItemAtPath:filteredPreviewPath error:&err]) {
+      reject(@"cleanup_failed",
+             [NSString stringWithFormat:@"Could not remove filtered preview folder: %@",
                                         err.localizedDescription ?: @"unknown"],
              err);
       return;
@@ -946,6 +962,8 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   NSString *stdRoot = [rootDir stringByStandardizingPath];
   NSString *listenLogDir =
       [stdRoot stringByAppendingPathComponent:AUBKListenLogsFolderName()];
+  NSString *filteredPreviewDir =
+      [stdRoot stringByAppendingPathComponent:AUBKFilteredPreviewFolderName()];
 
   /// PYTHONUNBUFFERED: stderr lines flush immediately; otherwise progress stays buffered until exit.
   NSMutableString *cmd =
@@ -963,6 +981,7 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
            ShellQuotePath(cue)];
   if (listenWordsLog) {
     [cmd appendFormat:@" --listen-log-dir %@", ShellQuotePath(listenLogDir)];
+    [cmd appendFormat:@" --save-filtered-wav-to %@", ShellQuotePath(filteredPreviewDir)];
   }
   int status = -1;
   NSMutableString *stderrAll = [NSMutableString string];

@@ -12,7 +12,10 @@ type StepKey = 1 | 2 | 3 | 4 | 5;
 export type UiCopy = {
   conversionStepTitles: Record<StepKey, string>;
   labelChapterCue: string;
-  /** Whisper step: save per-MP3 transcript logs under AudiobookConverter_listen_logs. */
+  /**
+   * Whisper step: enables transcript `.listen.txt` logs and filtered WAV previews
+   * (`AudiobookConverter_listen_logs` / `AudiobookConverter_filtered_preview`).
+   */
   labelListenLog: string;
   /** faster-whisper quantization / precision (matches native allowlist). */
   labelComputeType: string;

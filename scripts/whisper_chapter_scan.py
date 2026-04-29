@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 For each MP3, transcribe the first --head-seconds-first seconds (default 60) for the **first**
-MP3 in folder order only; all others use --head-seconds (default 45). ffmpeg + faster-whisper
+MP3 in folder order only; all others use --head-seconds (default 45). ffmpeg extracts mono 16 kHz
+WAV with mild EQ/high-pass by default (``--no-speech-eq`` to disable), optional
+``--save-filtered-wav-to DIR`` to keep those WAVs for listening, then faster-whisper
 to identify the chapter: spoken special labels (Zeittafel, Prolog, Epilog, Prologue, Epilogue) or
-“Kapitel/Chapter” + number (Arabic or Roman: III → 3). German: *Z* as [s] in ASR (z→s), plus *Levenshtein* for stems like
+“Kapitel/Chapter” + number (Arabic, Roman, or spoken „drei“ / „three“ for 1–9). German: *Z* as [s] in ASR (z→s), plus *Levenshtein* for stems like
 *Zeitfafel*; *Kapitel* may be clipped (*Kapitl*) or misheard. **Compound specials** (e.g. *Zeit* + *Tafel* as two ASR words) and matches in the
 **full head transcript** are detected. If **Prolog/Prologue/Epilog** is detected in more than one
 MP3, the **last** file in folder order is kept; duplicate **Zeittafel** keeps the **first**.
@@ -23,12 +25,18 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-MAX_PARALLEL_WHISPER_WORKERS = 4
+MAX_PARALLEL_WHISPER_WORKERS = 8
 
 HEAD_SECONDS_DEFAULT = 45
 HEAD_SECONDS_FIRST_DEFAULT = 60
 CHAPTER_LOG_FILENAME = "AudiobookConverter_kapitel.log"
 LISTEN_LOG_SUBDIR_NAME = "AudiobookConverter_listen_logs"
+FILTERED_PREVIEW_SUBDIR_NAME = "AudiobookConverter_filtered_preview"
+
+# ffmpeg -af: trim low-frequency mud, gentle presence lift before Whisper (speech vs quiet bed).
+# Tuned vs ~/myProjects/Books/Silber Edition 27 - Andromeda (scripts/benchmark_speech_eq.py):
+# highpass 120 Hz vs 100 Hz improved tiny-model chapter hits on that set (Kapitel 3 clip).
+FFMPEG_SPEECH_EQ_AF = "highpass=f=120,equalizer=f=300:width_type=h:width=100:g=-0.5"
 
 
 def whisper_model_is_cached_locally(model_size: str) -> bool:
@@ -357,10 +365,18 @@ _ROMAN_VALID_RE = re.compile(
 
 
 def _roman_token_to_int(token: str) -> Optional[int]:
-    """If *token* is a roman numeral (z. B. III, XIV), return its integer value; else None."""
-    raw = "".join(c for c in token.upper() if c in _ROMAN_VALUES)
-    if not raw:
+    """
+    If *token* is a roman numeral (z. B. III, XIV), return its integer value; else None.
+
+    Only alphabetic letters are considered. If any letter is not I/V/X/L/C/D/M, we reject:
+    otherwise German *drei* would strip to *DI* and wrongly parse as 501 (500+1).
+    """
+    letters = "".join(c for c in token.upper() if c.isalpha())
+    if not letters:
         return None
+    if any(c not in _ROMAN_VALUES for c in letters):
+        return None
+    raw = letters
     if not _ROMAN_VALID_RE.match(raw):
         return None
     vals = _ROMAN_VALUES
@@ -378,15 +394,55 @@ def _roman_token_to_int(token: str) -> Optional[int]:
     return total
 
 
-def chapter_number_after_cue(word: str) -> Optional[int]:
+# Spoken chapter numbers 1–9 (next token after Kapitel/Chapter); keys = normalize_word_de / normalize_word_en.
+_DE_SPOKEN_NUMBER_INT: dict[str, int] = {
+    "eins": 1,
+    "zwei": 2,
+    "zwo": 2,
+    "drei": 3,
+    "vier": 4,
+    "fünf": 5,
+    "funf": 5,
+    "fuenf": 5,
+    "sechs": 6,
+    "sieben": 7,
+    "acht": 8,
+    "neun": 9,
+}
+_EN_SPOKEN_NUMBER_INT: dict[str, int] = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+}
+
+
+def _spoken_number_word_1_to_9(word: str, chapter_cue: str) -> Optional[int]:
+    """Match spoken digit words for chapters 1–9 (DE/EN). Uses normalized tokens only (no fuzzy vs e.g. nein/neun)."""
+    if chapter_cue == "en":
+        key = normalize_word_en(word.strip())
+        return _EN_SPOKEN_NUMBER_INT.get(key)
+    key = normalize_word_de(word.strip())
+    return _DE_SPOKEN_NUMBER_INT.get(key)
+
+
+def chapter_number_after_cue(word: str, chapter_cue: str) -> Optional[int]:
     """
-    Arabic digits (z. B. „12“, „3.“) oder römische Zahl im nächsten Wort (z. B. „III“, „XIV“).
+    Arabic digits, Roman numerals, or spoken German/English words for 1–9 (e.g. drei, three).
     """
     w = word.strip()
     n = first_int_in(w)
     if n is not None:
         return n
-    return _roman_token_to_int(w)
+    r = _roman_token_to_int(w)
+    if r is not None:
+        return r
+    return _spoken_number_word_1_to_9(w, chapter_cue)
 
 
 def words_from_segments(segments):
@@ -456,7 +512,8 @@ def _collect_special_candidates(
     wlist: list, segments: list
 ) -> list[tuple[float, str]]:
     """
-    (speech_time, label) for any special: single token, two-token compound, or substring in head text.
+    (speech_time, label) for any special: single token, two-token compound, or fuzzy stem in a
+    cumulative letters blob built from segment text.
     """
     cands: list[tuple[float, str]] = []
     for wo in wlist:
@@ -509,99 +566,156 @@ def _pick_special_label(cands: list[tuple[float, str]]) -> Optional[str]:
     return at_min[0]
 
 
+def _special_label_allowed_at_index(
+    label: str, mp3_index: int, mp3_count: int
+) -> bool:
+    """
+    mp3_index is 0-based in sorted MP3 order. Zeittafel → first file; Prolog/Prologue → second;
+    Epilog → last. (If mp3_count == 1, only Zeittafel + Epilog slots apply to that file.)
+    """
+    if mp3_count < 1:
+        return False
+    last_i = mp3_count - 1
+    if label == "Zeittafel":
+        return mp3_index == 0
+    if label in ("Prolog", "Prologue"):
+        return mp3_count >= 2 and mp3_index == 1
+    if label == "Epilog":
+        return mp3_index == last_i
+    return False
+
+
+def _filter_special_cands_for_mp3_index(
+    cands: list[tuple[float, str]], mp3_index: int, mp3_count: int
+) -> list[tuple[float, str]]:
+    return [
+        (t, lab)
+        for t, lab in cands
+        if _special_label_allowed_at_index(lab, mp3_index, mp3_count)
+    ]
+
+
 def find_chapter_marks_for_file(
-    words, segments, file_path_resolved: str, chapter_cue: str
+    words,
+    segments,
+    file_path_resolved: str,
+    chapter_cue: str,
+    *,
+    mp3_index: int = 0,
+    mp3_count: int = 1,
 ) -> list:
     """
-    At most one chapter per MP3. Specials: from words, 2-word compounds, and full head text
-    (ASR often splits e.g. Zeittafel). Earliest time wins; ties break by SPECIAL_LABEL_PRIORITY.
-    Otherwise earliest Kapitel/Chapter + number. startSec is always 0 (file start in mux).
+    Zeittafel / Prolog / Epilog are only accepted on the 1st, 2nd, and last MP3 respectively
+    (see ``_special_label_allowed_at_index``). Those slots still run normal Kapitel/Chapter + number
+    detection; both may be returned for the same file (startSec 0 for each from the head scan).
     """
     wlist = list(words)
     seglist = list(segments) if segments else []
+    out: list = []
+
     spec_cands = _collect_special_candidates(wlist, seglist)
-    if spec_cands:
-        chosen = _pick_special_label(spec_cands)
+    slot_cands = _filter_special_cands_for_mp3_index(
+        spec_cands, mp3_index, mp3_count
+    )
+    if slot_cands:
+        chosen = _pick_special_label(slot_cands)
         if chosen is not None:
             num = SPECIAL_LABEL_TO_NUMBER.get(chosen, -1)
-            return [
+            out.append(
                 {
                     "filePath": file_path_resolved,
                     "startSec": 0.0,
                     "number": num,
                     "label": chosen,
                 }
-            ]
+            )
 
-    if len(wlist) < 2:
-        return []
     best_k: Optional[tuple[float, dict]] = None
-    for i in range(len(wlist) - 1):
-        if not word_matches_chapter_cue(wlist[i].word, chapter_cue):
-            continue
-        num = chapter_number_after_cue(wlist[i + 1].word)
-        if num is None:
-            continue
-        t = float(wlist[i].start)
-        mark = {
-            "filePath": file_path_resolved,
-            "startSec": 0.0,
-            "number": num,
-            "label": number_chapter_label(num, chapter_cue),
-        }
-        if best_k is None or t < best_k[0]:
-            best_k = (t, mark)
-    if best_k is not None:
-        return [best_k[1]]
-    return []
+    if len(wlist) >= 2:
+        for i in range(len(wlist) - 1):
+            if not word_matches_chapter_cue(wlist[i].word, chapter_cue):
+                continue
+            num = chapter_number_after_cue(wlist[i + 1].word, chapter_cue)
+            if num is None:
+                continue
+            t = float(wlist[i].start)
+            mark = {
+                "filePath": file_path_resolved,
+                "startSec": 0.0,
+                "number": num,
+                "label": number_chapter_label(num, chapter_cue),
+            }
+            if best_k is None or t < best_k[0]:
+                best_k = (t, mark)
+        if best_k is not None:
+            out.append(best_k[1])
+
+    return out
 
 
 def dedupe_global_specials(
     marks: list[dict[str, Any]], ordered_resolved_paths: list[str]
 ) -> list[dict[str, Any]]:
     """
-    One Zeittafel: keep the earliest MP3 in folder order. Prolog, Prologue, Epilog: if several
-    files match, keep only the *last* in folder order (reduces a spurious prologue in an intro file).
+    Keep Zeittafel / Prolog / Prologue / Epilog only on the fixed slot (1st / 2nd / last MP3).
+    Drops stray specials from mis-ASR or pool reordering.
     """
     if not marks or not ordered_resolved_paths:
         return marks
-    rank: dict[str, int] = {p: i for i, p in enumerate(ordered_resolved_paths)}
+    nfiles = len(ordered_resolved_paths)
+    norm = [str(Path(p).resolve()) for p in ordered_resolved_paths]
+    slot_for_num: dict[int, str] = {}
+    if nfiles >= 1:
+        slot_for_num[NUM_ZEITTAFEL] = norm[0]
+    if nfiles >= 2:
+        slot_for_num[NUM_PROLOG] = norm[1]
+        slot_for_num[NUM_PROLOGUE] = norm[1]
+    if nfiles >= 1:
+        slot_for_num[NUM_EPILOG] = norm[-1]
 
     def key_fp(m: dict[str, Any]) -> str:
         return str(Path(m.get("filePath", "")).resolve())
 
-    by_num: dict[int, list[dict[str, Any]]] = {}
+    out: list[dict[str, Any]] = []
     for m in marks:
-        n = m.get("number")
-        if n in (NUM_ZEITTAFEL, NUM_PROLOG, NUM_EPILOG, NUM_PROLOGUE):
-            by_num.setdefault(int(n), []).append(m)
-
-    remove_fp: set[str] = set()
-    for n, group in by_num.items():
-        if len(group) < 2:
+        try:
+            num = int(m.get("number"))
+        except (TypeError, ValueError):
+            out.append(m)
             continue
-        ordered = sorted(group, key=lambda m: rank.get(key_fp(m), 10**9))
-        if n == NUM_ZEITTAFEL:
-            for m in ordered[1:]:
-                remove_fp.add(key_fp(m))
-        elif n == NUM_EPILOG:
-            for m in ordered[:-1]:
-                remove_fp.add(key_fp(m))
-    prolog_fam = by_num.get(NUM_PROLOG, []) + by_num.get(NUM_PROLOGUE, [])
-    if len(prolog_fam) > 1:
-        ordered = sorted(prolog_fam, key=lambda m: rank.get(key_fp(m), 10**9))
-        for m in ordered[:-1]:
-            remove_fp.add(key_fp(m))
-
-    if not remove_fp:
-        return marks
-    return [m for m in marks if key_fp(m) not in remove_fp]
+        expected = slot_for_num.get(num)
+        if expected is None or num not in (
+            NUM_ZEITTAFEL,
+            NUM_PROLOG,
+            NUM_EPILOG,
+            NUM_PROLOGUE,
+        ):
+            out.append(m)
+            continue
+        if key_fp(m) == expected:
+            out.append(m)
+    return out
 
 
-def extract_head_wav(ffmpeg_bin: str, src: Path, duration_sec: float) -> Path:
-    fd, out_name = tempfile.mkstemp(suffix=".wav", prefix="abc_whisper_head_")
-    os.close(fd)
-    out_path = Path(out_name)
+def extract_head_wav(
+    ffmpeg_bin: str,
+    src: Path,
+    duration_sec: float,
+    *,
+    speech_eq: bool = True,
+    out_path: Optional[Path] = None,
+) -> Path:
+    """
+    Decode first *duration_sec* to mono 16-bit 16 kHz WAV (optional speech EQ).
+    If *out_path* is set, write there (parent dirs created); else a temp file.
+    """
+    if out_path is None:
+        fd, out_name = tempfile.mkstemp(suffix=".wav", prefix="abc_whisper_head_")
+        os.close(fd)
+        dest = Path(out_name)
+    else:
+        dest = out_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         ffmpeg_bin,
         "-y",
@@ -612,16 +726,22 @@ def extract_head_wav(ffmpeg_bin: str, src: Path, duration_sec: float) -> Path:
         str(src),
         "-t",
         str(duration_sec),
-        "-acodec",
-        "pcm_s16le",
-        "-ar",
-        "16000",
-        "-ac",
-        "1",
-        str(out_path),
     ]
+    if speech_eq:
+        cmd.extend(["-af", FFMPEG_SPEECH_EQ_AF])
+    cmd.extend(
+        [
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            str(dest),
+        ]
+    )
     subprocess.run(cmd, check=True, stderr=subprocess.PIPE)
-    return out_path
+    return dest
 
 
 def transcribe_file(model, wav_path: Path, language: str):
@@ -643,13 +763,28 @@ def _marks_for_mp3(
     language: str,
     chapter_cue: str,
     *,
+    mp3_index: int = 0,
+    mp3_count: int = 1,
     root: Optional[Path] = None,
     listen_log_dir: Optional[Path] = None,
+    speech_eq: bool = True,
+    save_filtered_wav_dir: Optional[Path] = None,
 ) -> list:
     wav: Optional[Path] = None
+    keep_wav_on_disk = False
     segments: list = []
     try:
-        wav = extract_head_wav(ffmpeg_bin, mp3, head_sec)
+        persist: Optional[Path] = None
+        if save_filtered_wav_dir is not None:
+            persist = save_filtered_wav_dir / f"{mp3.stem}_speech_eq.wav"
+            keep_wav_on_disk = True
+        wav = extract_head_wav(
+            ffmpeg_bin,
+            mp3,
+            head_sec,
+            speech_eq=speech_eq,
+            out_path=persist,
+        )
         segments = transcribe_file(model, wav, language)
     except subprocess.CalledProcessError as exc:
         print(f"{mp3}: ffmpeg {exc.stderr!r}", file=sys.stderr)
@@ -658,7 +793,7 @@ def _marks_for_mp3(
         print(f"{mp3}: {exc}", file=sys.stderr)
         raise
     finally:
-        if wav is not None and wav.exists():
+        if wav is not None and wav.exists() and not keep_wav_on_disk:
             try:
                 wav.unlink()
             except OSError:
@@ -682,7 +817,12 @@ def _marks_for_mp3(
 
     words = words_from_segments(segments)
     return find_chapter_marks_for_file(
-        words, segments, str(mp3.resolve()), chapter_cue
+        words,
+        segments,
+        str(mp3.resolve()),
+        chapter_cue,
+        mp3_index=mp3_index,
+        mp3_count=mp3_count,
     )
 
 
@@ -701,7 +841,7 @@ def _init_whisper_pool(model_size: str, device: str, compute_type: str) -> None:
 
 
 def _whisper_pool_job(
-    payload: Tuple[str, float, str, str, str, str, str],
+    payload: Tuple[str, float, str, str, str, str, str, bool, str, int, int],
 ) -> list:
     (
         mp3_str,
@@ -711,12 +851,21 @@ def _whisper_pool_job(
         chapter_cue,
         root_str,
         listen_log_dir_str,
+        speech_eq,
+        save_filtered_wav_dir_str,
+        mp3_index,
+        mp3_count,
     ) = payload
     mp3 = Path(mp3_str)
     root = Path(root_str).expanduser().resolve()
     listen_dir: Optional[Path] = (
         Path(listen_log_dir_str).expanduser().resolve()
         if listen_log_dir_str
+        else None
+    )
+    save_filt: Optional[Path] = (
+        Path(save_filtered_wav_dir_str).expanduser().resolve()
+        if save_filtered_wav_dir_str
         else None
     )
     global _worker_model
@@ -729,8 +878,12 @@ def _whisper_pool_job(
         ffmpeg_bin,
         language,
         chapter_cue,
+        mp3_index=mp3_index,
+        mp3_count=mp3_count,
         root=root,
         listen_log_dir=listen_dir,
+        speech_eq=speech_eq,
+        save_filtered_wav_dir=save_filt,
     )
 
 
@@ -779,8 +932,27 @@ def main():
             f"(under this folder; suggested: …/{LISTEN_LOG_SUBDIR_NAME})."
         ),
     )
+    parser.add_argument(
+        "--no-speech-eq",
+        action="store_true",
+        help=(
+            "Disable mild FFmpeg high-pass + presence EQ before Whisper "
+            "(compare raw head extract)."
+        ),
+    )
+    parser.add_argument(
+        "--save-filtered-wav-to",
+        default="",
+        metavar="DIR",
+        help=(
+            "If set, write each FFmpeg-processed head clip as WAV here "
+            f"(same audio Whisper receives; e.g. …/{FILTERED_PREVIEW_SUBDIR_NAME}) "
+            "so you can listen in any player."
+        ),
+    )
     args = parser.parse_args()
     chapter_cue: str = args.chapter_cue
+    speech_eq = not args.no_speech_eq
 
     root = Path(args.root_dir).expanduser().resolve()
     if not root.is_dir():
@@ -791,6 +963,11 @@ def main():
     listen_log_dir: Optional[Path] = None
     if listen_log_dir_str:
         listen_log_dir = Path(listen_log_dir_str).expanduser().resolve()
+
+    save_filtered_str = (args.save_filtered_wav_to or "").strip()
+    save_filtered_wav_dir: Optional[Path] = None
+    if save_filtered_str:
+        save_filtered_wav_dir = Path(save_filtered_str).expanduser().resolve()
 
     mp3_list = list(iter_mp3_files(root))
     head_sec_rest = max(0.5, float(args.head_seconds))
@@ -829,8 +1006,8 @@ def main():
         if nfiles > 0:
             print(f"[0/{nfiles}]", file=sys.stderr, flush=True)
 
-        for idx, mp3 in enumerate(mp3_list, start=1):
-            head_this = head_sec_first if idx == 1 else head_sec_rest
+        for fi, mp3 in enumerate(mp3_list):
+            head_this = head_sec_first if fi == 0 else head_sec_rest
             try:
                 marks = _marks_for_mp3(
                     model,
@@ -839,13 +1016,17 @@ def main():
                     args.ffmpeg,
                     args.language,
                     chapter_cue,
+                    mp3_index=fi,
+                    mp3_count=nfiles,
                     root=root,
                     listen_log_dir=listen_log_dir,
+                    speech_eq=speech_eq,
+                    save_filtered_wav_dir=save_filtered_wav_dir,
                 )
             except (subprocess.CalledProcessError, Exception):
                 sys.exit(1)
             all_marks.extend(marks)
-            print(f"[{idx}/{nfiles}]", file=sys.stderr, flush=True)
+            print(f"[{fi + 1}/{nfiles}]", file=sys.stderr, flush=True)
     else:
         try:
             from faster_whisper.utils import download_model
@@ -888,6 +1069,10 @@ def main():
                             chapter_cue,
                             str(root),
                             listen_log_dir_str,
+                            speech_eq,
+                            save_filtered_str,
+                            fi,
+                            nfiles,
                         ),
                     )
                     for fi, p in enumerate(mp3_list)
@@ -929,6 +1114,20 @@ def main():
             print(f"Hör-Protokoll (Transkript pro MP3): {listen_log_dir}", file=sys.stderr, flush=True)
         else:
             print(f"Listen transcript logs (one file per MP3): {listen_log_dir}", file=sys.stderr, flush=True)
+
+    if save_filtered_wav_dir is not None:
+        if chapter_cue == "de":
+            print(
+                f"Vorschau-Audio (FFmpeg → WAV pro MP3): {save_filtered_wav_dir}",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(
+                f"Filtered preview WAVs (per MP3): {save_filtered_wav_dir}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     json.dump(
         {"marks": all_marks, "chapterCue": chapter_cue},
