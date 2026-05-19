@@ -12,6 +12,10 @@ type StepKey = 1 | 2 | 3 | 4 | 5;
 export type UiCopy = {
   conversionStepTitles: Record<StepKey, string>;
   labelChapterCue: string;
+  /** Accordion: music vs spoken chapter number detection. */
+  labelChapterRecognition: string;
+  chapterRecognitionMusic: string;
+  chapterRecognitionText: string;
   /** Whisper step: save per-MP3 transcript logs under AudiobookConverter_listen_logs. */
   labelListenLog: string;
   /** Accordion: Mode, Device, compute, language, listen log. */
@@ -89,6 +93,9 @@ const de: UiCopy = {
     5: "Hörbuch (M4B) erstellen",
   },
   labelChapterCue: "Sprache:",
+  labelChapterRecognition: "Kapitel-Erkennung:",
+  chapterRecognitionMusic: "durch Musik",
+  chapterRecognitionText: "durch Texterkennung",
   labelListenLog: "Hör-Protokoll:",
   labelMoreSettings: "Weitere Einstellungen",
   labelConfirmEachStep: "Ergebnisdialoge:",
@@ -189,6 +196,9 @@ const en: UiCopy = {
     5: "Create audiobook (M4B)",
   },
   labelChapterCue: "Language:",
+  labelChapterRecognition: "Chapter recognition:",
+  chapterRecognitionMusic: "by music",
+  chapterRecognitionText: "by text recognition",
   labelListenLog: "Listen log:",
   labelMoreSettings: "More settings",
   labelConfirmEachStep: "Step prompts:",
