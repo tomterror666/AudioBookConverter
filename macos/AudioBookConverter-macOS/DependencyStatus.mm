@@ -777,6 +777,18 @@ static BOOL ValidateWhisperParams(NSString *modelSize,
   return YES;
 }
 
+static BOOL ValidateChapterRecognition(NSString *rec, RCTPromiseRejectBlock reject)
+{
+  NSString *r = rec.length > 0 ? rec.lowercaseString : @"music";
+  if ([r isEqualToString:@"music"] || [r isEqualToString:@"text"]) {
+    return YES;
+  }
+  reject(@"bad_chapter_recognition",
+         @"Invalid chapterRecognition. Allowed: music, text.",
+         nil);
+  return NO;
+}
+
 static NSString *AUBKChapterMarksCacheFileName(void)
 {
   return @"AudiobookConverter_chapters.json";
@@ -786,7 +798,8 @@ static NSString *AUBKChapterMarksCacheFileName(void)
 /// referenced filePath is not on disk (stale cache).
 static NSDictionary *_Nullable AUBKReadValidatedChapterCacheAtRoot(NSString *stdRoot,
                                                                    NSFileManager *fm,
-                                                                   NSString *requestedChapterCue)
+                                                                   NSString *requestedChapterCue,
+                                                                   NSString *requestedChapterRecognition)
 {
   NSString *path = [stdRoot stringByAppendingPathComponent:AUBKChapterMarksCacheFileName()];
   if (![fm isReadableFileAtPath:path]) {
@@ -819,6 +832,16 @@ static NSDictionary *_Nullable AUBKReadValidatedChapterCacheAtRoot(NSString *std
   } else if (![cachedCue isEqualToString:wantCue]) {
     return nil;
   }
+  NSString *wantRec =
+      requestedChapterRecognition.length > 0 ? requestedChapterRecognition.lowercaseString : @"music";
+  id cachedRecObj = doc[@"chapterRecognition"];
+  NSString *cachedRec = @"music";
+  if ([cachedRecObj isKindOfClass:[NSString class]] && [(NSString *)cachedRecObj length] > 0) {
+    cachedRec = [(NSString *)cachedRecObj lowercaseString];
+  }
+  if (![cachedRec isEqualToString:wantRec]) {
+    return nil;
+  }
   for (id item in (NSArray *)marks) {
     if (![item isKindOfClass:[NSDictionary class]]) {
       return nil;
@@ -836,6 +859,7 @@ static NSDictionary *_Nullable AUBKReadValidatedChapterCacheAtRoot(NSString *std
 
 static void ReadChapterMarksCacheIfPresentResolved(NSString *rootDir,
                                                     NSString *chapterCue,
+                                                    NSString *chapterRecognition,
                                                     RCTPromiseResolveBlock resolve,
                                                     RCTPromiseRejectBlock reject)
 {
@@ -847,7 +871,8 @@ static void ReadChapterMarksCacheIfPresentResolved(NSString *rootDir,
     resolve([NSNull null]);
     return;
   }
-  NSDictionary *payload = AUBKReadValidatedChapterCacheAtRoot(stdRoot, fm, chapterCue);
+  NSDictionary *payload =
+      AUBKReadValidatedChapterCacheAtRoot(stdRoot, fm, chapterCue, chapterRecognition);
   if (payload == nil) {
     resolve([NSNull null]);
     return;
@@ -900,6 +925,7 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
                                            NSString *device,
                                            NSString *computeType,
                                            NSString *chapterCue,
+                                           NSString *chapterRecognition,
                                            BOOL listenWordsLog,
                                            RCTCallableJSModules *_Nullable jsModulesForProgress,
                                            RCTPromiseResolveBlock resolve,
@@ -908,10 +934,14 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   if (!ValidateWhisperParams(modelSize, device, computeType, chapterCue, reject)) {
     return;
   }
+  if (!ValidateChapterRecognition(chapterRecognition, reject)) {
+    return;
+  }
   NSString *ms = modelSize.lowercaseString;
   NSString *dev = device.lowercaseString;
   NSString *ct = computeType.lowercaseString;
   NSString *cue = chapterCue.lowercaseString;
+  NSString *rec = chapterRecognition.length > 0 ? chapterRecognition.lowercaseString : @"music";
 
   NSFileManager *fm = [NSFileManager defaultManager];
   BOOL isDir = NO;
@@ -951,7 +981,7 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
   NSMutableString *cmd =
       [NSMutableString stringWithFormat:
            @"env PYTHONUNBUFFERED=1 %@ %@ --root-dir %@ --model-size %@ --device %@ --compute-type %@ "
-           @"--ffmpeg %@ --language %@ --head-seconds 45 --head-seconds-first 60 --chapter-cue %@",
+           @"--ffmpeg %@ --language %@ --head-seconds 45 --head-seconds-first 60 --chapter-cue %@ --chapter-mode %@",
            py,
            ShellQuotePath(script),
            ShellQuotePath(rootDir),
@@ -960,7 +990,8 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
            ShellQuotePath(ct),
            ShellQuotePath(ffmpeg),
            ShellQuotePath(cue),
-           ShellQuotePath(cue)];
+           ShellQuotePath(cue),
+           ShellQuotePath(rec)];
   if (listenWordsLog) {
     [cmd appendFormat:@" --listen-log-dir %@", ShellQuotePath(listenLogDir)];
   }
@@ -1013,8 +1044,12 @@ static void DetectChaptersWithWhisperResolved(NSString *rootDir,
     return;
   }
   NSString *stdRootForCache = [rootDir stringByStandardizingPath];
-  NSDictionary *cacheDoc =
-      @{@"schemaVersion" : @1, @"marks" : marks, @"chapterCue" : cue};
+  NSDictionary *cacheDoc = @{
+    @"schemaVersion" : @1,
+    @"marks" : marks,
+    @"chapterCue" : cue,
+    @"chapterRecognition" : rec,
+  };
   NSError *werr = nil;
   NSData *wdata = [NSJSONSerialization dataWithJSONObject:cacheDoc options:NSJSONWritingPrettyPrinted error:&werr];
   if (wdata != nil && werr == nil) {
@@ -1471,6 +1506,7 @@ RCT_REMAP_METHOD(detectChaptersWithWhisper,
                  device:(NSString *)device
                  computeType:(NSString *)computeType
                  chapterCue:(NSString *)chapterCue
+                 chapterRecognition:(NSString *)chapterRecognition
                  listenWordsLog:(BOOL)listenWordsLog
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject)
@@ -1482,16 +1518,18 @@ RCT_REMAP_METHOD(detectChaptersWithWhisper,
            nil);
     return;
   }
+  NSString *rec = chapterRecognition ?: @"";
   RCTCallableJSModules *progressJS = self.callableJSModules;
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     DetectChaptersWithWhisperResolved(
-        rootDirectory, modelSize, device, computeType, chapterCue, listenWordsLog, progressJS, resolve, reject);
+        rootDirectory, modelSize, device, computeType, chapterCue, rec, listenWordsLog, progressJS, resolve, reject);
   });
 }
 
 RCT_REMAP_METHOD(readChapterMarksCacheIfPresent,
                  readChapterMarksCacheIfPresent:(NSString *)rootDirectory
                  chapterCue:(NSString *)chapterCue
+                 chapterRecognition:(NSString *)chapterRecognition
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -1499,8 +1537,9 @@ RCT_REMAP_METHOD(readChapterMarksCacheIfPresent,
     reject(@"empty", @"rootDirectory and chapterCue are required.", nil);
     return;
   }
+  NSString *rec = chapterRecognition ?: @"";
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-    ReadChapterMarksCacheIfPresentResolved(rootDirectory, chapterCue, resolve, reject);
+    ReadChapterMarksCacheIfPresentResolved(rootDirectory, chapterCue, rec, resolve, reject);
   });
 }
 

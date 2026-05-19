@@ -66,6 +66,7 @@ import {
   muxChaptersIntoMergedM4a,
   type AudiobookM4bMetadata,
   type ChapterCue,
+  type ChapterRecognitionMode,
 } from "../../utils/conversionPipeline";
 import { styles } from "./MainPage.styles";
 
@@ -128,6 +129,8 @@ function MainPageInner(props: {
   >("scan");
   /** Whisper: write per-MP3 transcript `.listen.txt` files under AudiobookConverter_listen_logs. */
   const [writeListenLogs, setWriteListenLogs] = useState(false);
+  const [chapterRecognition, setChapterRecognition] =
+    useState<ChapterRecognitionMode>("music");
   /**
    * When true, conversion shows MP3 count, per-step summary, and success modals.
    * When false (default), the pipeline runs straight through (use ScrollView if content overflows).
@@ -753,6 +756,54 @@ function MainPageInner(props: {
         ),
       },
       {
+        key: "chapterRecognition",
+        title: (
+          <Label
+            title={u.labelChapterRecognition}
+            variant={LabelVariant.NormalBold}
+            align={LabelAlign.Left}
+          />
+        ),
+        input: () => (
+          <View style={styles.chapterCueInputWrapper}>
+            <View style={styles.chapterCueBox}>
+              <View style={styles.chapterCueControls}>
+                <Label
+                  title={u.chapterRecognitionMusic}
+                  variant={LabelVariant.Normal}
+                  color={
+                    chapterRecognition === "music"
+                      ? Color.gray900
+                      : Color.gray500
+                  }
+                  align={LabelAlign.Left}
+                />
+                <Switch
+                  value={chapterRecognition === "text"}
+                  onValueChange={v =>
+                    setChapterRecognition(v ? "text" : "music")
+                  }
+                  trackColor={{
+                    false: Color.gray300,
+                    true: Color.primary,
+                  }}
+                />
+                <Label
+                  title={u.chapterRecognitionText}
+                  variant={LabelVariant.Normal}
+                  color={
+                    chapterRecognition === "text"
+                      ? Color.gray900
+                      : Color.gray500
+                  }
+                  align={LabelAlign.Left}
+                />
+              </View>
+            </View>
+          </View>
+        ),
+      },
+      {
         key: "listenLog",
         title: (
           <Label
@@ -844,6 +895,7 @@ function MainPageInner(props: {
     ],
     [
       chapterCue,
+      chapterRecognition,
       confirmEachConversionStep,
       handleComputeTypePress,
       handleDevicePress,
@@ -852,7 +904,10 @@ function MainPageInner(props: {
       selectedDevice,
       selectedMode,
       setChapterCue,
+      u.chapterRecognitionMusic,
+      u.chapterRecognitionText,
       u.labelChapterCue,
+      u.labelChapterRecognition,
       u.labelComputeType,
       u.labelConfirmEachStep,
       u.labelListenLog,
@@ -974,6 +1029,7 @@ function MainPageInner(props: {
             computeType: selectedComputeType!.trim().toLowerCase(),
             chapterCue,
             writeListenLogs,
+            chapterRecognition,
           });
           if (chapterMarks.usedChapterCache && mp3Count > 0) {
             setWhisperMp3Done(mp3Count);

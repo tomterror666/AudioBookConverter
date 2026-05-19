@@ -31,6 +31,9 @@ const DEFAULT_WHISPER_COMPUTE_TYPE = "int8_float32" as const;
 /** Whisper transcript keyword: German "Kapitel" vs English "Chapter". */
 export type ChapterCue = "de" | "en";
 
+/** Chapter boundary detection: music/silence head cues vs spoken "Kapitel N" / "Chapter N". */
+export type ChapterRecognitionMode = "music" | "text";
+
 export type ChapterMark = {
   filePath: string;
   startSec: number;
@@ -104,6 +107,7 @@ function parseChapterDetectionResult(raw: unknown): ChapterDetectionResult {
 async function nativeReadChapterMarksCacheIfPresent(
   rootDirectory: string,
   chapterCue: ChapterCue,
+  chapterRecognition: ChapterRecognitionMode,
 ): Promise<unknown | null> {
   if (Platform.OS !== "macos") {
     return null;
@@ -113,6 +117,7 @@ async function nativeReadChapterMarksCacheIfPresent(
         readChapterMarksCacheIfPresent?: (
           root: string,
           cue: string,
+          recognition: string,
         ) => Promise<unknown>;
       }
     | undefined;
@@ -120,7 +125,7 @@ async function nativeReadChapterMarksCacheIfPresent(
   if (typeof fn !== "function") {
     return null;
   }
-  const raw = await fn(rootDirectory, chapterCue);
+  const raw = await fn(rootDirectory, chapterCue, chapterRecognition);
   if (raw == null) {
     return null;
   }
@@ -153,6 +158,7 @@ async function nativeDetectChaptersWithWhisper(
   device: string,
   computeType: string,
   chapterCue: ChapterCue,
+  chapterRecognition: ChapterRecognitionMode,
   writeListenLogs: boolean,
 ): Promise<ChapterDetectionResult> {
   if (Platform.OS !== "macos") {
@@ -168,6 +174,7 @@ async function nativeDetectChaptersWithWhisper(
           dev: string,
           ct: string,
           cue: string,
+          recognition: string,
           writeListenLogs: boolean,
         ) => Promise<unknown>;
       }
@@ -182,6 +189,7 @@ async function nativeDetectChaptersWithWhisper(
     device,
     computeType,
     chapterCue,
+    chapterRecognition,
     writeListenLogs,
   );
   const parsed = parseChapterDetectionResult(raw);
@@ -301,6 +309,8 @@ export type LocateChaptersOptions = {
    * `AudiobookConverter_listen_logs` in the project folder (recognized words / transcript).
    */
   writeListenLogs?: boolean;
+  /** `music` (default): head ASR / music cue; `text`: spoken chapter number in audio. */
+  chapterRecognition?: ChapterRecognitionMode;
 };
 
 /**
@@ -322,6 +332,10 @@ export async function locateChapters(
   const computeType =
     options.computeType?.trim().toLowerCase() ?? DEFAULT_WHISPER_COMPUTE_TYPE;
   const chapterCue: ChapterCue = options.chapterCue ?? "de";
+  let chapterRecognition: ChapterRecognitionMode = "music";
+  if (options.chapterRecognition === "text") {
+    chapterRecognition = "text";
+  }
 
   if (options.writeListenLogs === true) {
     await nativeClearListenLogsDirectory(root);
@@ -330,6 +344,7 @@ export async function locateChapters(
   const cachedRaw = await nativeReadChapterMarksCacheIfPresent(
     root,
     chapterCue,
+    chapterRecognition,
   );
   if (cachedRaw != null) {
     try {
@@ -346,6 +361,7 @@ export async function locateChapters(
     device,
     computeType,
     chapterCue,
+    chapterRecognition,
     options.writeListenLogs === true,
   );
 }
