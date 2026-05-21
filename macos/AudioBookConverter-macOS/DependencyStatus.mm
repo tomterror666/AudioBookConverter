@@ -415,7 +415,7 @@ static BOOL IsSupportedPythonForFasterWhisper(int major, int minor)
   if (major != 3) {
     return NO;
   }
-  return minor >= 10 && minor <= 12;
+  return minor >= 10 && minor <= 14;
 }
 
 /// Preferred interpreter for creating venv if present, else "python3".
