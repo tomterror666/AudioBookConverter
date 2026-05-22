@@ -101,6 +101,7 @@ describe("conversionPipeline", () => {
         "cpu",
         "int8_float32",
         "de",
+        "music",
         false,
       );
       expect(result.marks).toHaveLength(1);
@@ -126,6 +127,7 @@ describe("conversionPipeline", () => {
         "cpu",
         "int8",
         "de",
+        "music",
         false,
       );
     });
@@ -158,6 +160,7 @@ describe("conversionPipeline", () => {
         "cpu",
         "int8_float32",
         "en",
+        "music",
         false,
       );
     });
@@ -182,6 +185,7 @@ describe("conversionPipeline", () => {
         "cpu",
         "int8_float32",
         "de",
+        "music",
         true,
       );
     });
@@ -216,10 +220,35 @@ describe("conversionPipeline", () => {
         modelSize: "base",
         device: "cpu",
       });
-      expect(readCache).toHaveBeenCalledWith("/root", "de");
+      expect(readCache).toHaveBeenCalledWith("/root", "de", "music");
       expect(whisper).not.toHaveBeenCalled();
       expect(result.usedChapterCache).toBe(true);
       expect(result.marks).toEqual(validMarksPayload.marks);
+    });
+
+    it("passes chapterRecognition text to cache read and whisper", async () => {
+      const whisper = jest.fn(async () => validMarksPayload);
+      const readCache = jest.fn(async () => null);
+      mockMacosDeps({
+        readChapterMarksCacheIfPresent: readCache,
+        detectChaptersWithWhisper: whisper,
+      });
+      await locateChapters({
+        rootDirectory: "/root",
+        modelSize: "base",
+        device: "cpu",
+        chapterRecognition: "text",
+      });
+      expect(readCache).toHaveBeenCalledWith("/root", "de", "text");
+      expect(whisper).toHaveBeenCalledWith(
+        "/root",
+        "base",
+        "cpu",
+        "int8_float32",
+        "de",
+        "text",
+        false,
+      );
     });
 
     it("falls back to whisper when cache payload fails to parse", async () => {

@@ -6,16 +6,20 @@ Chapter layout without per-file “Kapitel N” speech recognition.
    scanned for *Zeittafel* only (new layout: 1st file is often title/author). When *Zeittafel*
    is found on the 2nd file, one *Zeittafel* chapter spans the 1st+2nd files (single mark at
    file 1 start) and *Prolog*/*Prologue* is sought on the **3rd** MP3. Legacy layout (word in
-   file 1) keeps *Prolog* on the 2nd file. *Epilog* on the last MP3. Each file is transcribed
-   at most once for these title slots.
+   file 1) keeps *Prolog* on the 2nd file. *Epilog* on the last MP3. Independent title-slot
+   files are transcribed with limited parallelism (ffmpeg can overlap; Whisper uses one model
+   lock). Up to 4 workers if ``os.cpu_count() > 8``, else 2.
 
-2) Chapter-head ASR (first 5 s, every MP3): if the model finds **little or no** usable speech,
-   the head is treated like a music/silence intro → this file can **start** a new numbered
-   chapter. Clear narration in the first 5 s ⇒ **not** that cue. Stored specials (step 1)
-   never act as such a boundary.
+2) **Chapter mode ``music`` (default):** Chapter-head ASR (first 5 s, every MP3): if the model
+   finds **little or no** usable speech, the head is treated like a music/silence intro → this
+   file can **start** a new numbered chapter. Clear narration in the first 5 s ⇒ **not** that
+   cue. Stored specials (step 1) never act as such a boundary. If no file qualifies: one
+   *Kapitel 1* span from after Prolog (if found) else after Zeittafel (if found) else 0,
+   through before Epilog (if found) else last MP3.
 
-3) If no file qualifies for (2): one *Kapitel 1* span from after Prolog (if found) else after
-   Zeittafel (if found) else 0, through before Epilog (if found) else last MP3.
+3) **Chapter mode ``text``:** After specials as in (1), the first ~TEXT_CHAPTER_SCAN_SEC of
+   each MP3 is transcribed and scanned for spoken *Kapitel N* / *Chapter N* (compact tokens);
+   chapter times use Whisper segment starts. If no hits: same single-chapter fallback as (2).
 
 JSON to stdout (marks + chapterCue), progress to stderr. ffmpeg + faster-whisper required.
 Tune ``ABC_HEAD_SPEECH_MIN_WORDS`` (default 4) or ``ABC_HEAD_DEBUG=1`` (or ``ABC_MUSIC_DEBUG``)
@@ -30,6 +34,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +53,7 @@ SPECIAL_LABEL_TO_NUMBER: dict[str, int] = {
 
 SPECIAL_SCAN_SEC = 60.0
 HEAD_CHAPTER_SCAN_SEC = 5.0
+TEXT_CHAPTER_SCAN_SEC = 45.0
 HEAD_SPEECH_MIN_WORDS_DEFAULT = 4
 HEAD_BRACKET_NOISE_RE = re.compile(r"\[[^\]]*\]")
 
@@ -85,16 +92,46 @@ def write_chapter_log(
     head_seconds_first: float,
     head_seconds_rest: float,
     chapter_cue: str,
+    chapter_mode: str = "music",
 ) -> None:
     log_path = root / CHAPTER_LOG_FILENAME
     de = chapter_cue == "de"
+    mode = (chapter_mode or "music").lower()
     if de:
-        title = "AudioBookConverter — erkannte Kapitel (Kopf-ASR + Titelwörter)"
+        if mode == "text":
+            title = "AudioBookConverter — erkannte Kapitel (Texterkennung Kapitel N)"
+            scan_note = (
+                f"Scanner: Texterkennung („Kapitel“/Zahl) in den ersten "
+                f"{TEXT_CHAPTER_SCAN_SEC:.0f} s je MP3; Kurz-ASR Titel wie zuvor. "
+                f"Modell {model_size}, Gerät {device}, chapter cue: {chapter_cue}."
+            )
+        else:
+            title = "AudioBookConverter — erkannte Kapitel (Kopf-ASR + Titelwörter)"
+            scan_note = (
+                f"Scanner: Kurz-ASR Titel ({head_seconds_first:.0f} s) + Kopf je MP3 "
+                f"({HEAD_CHAPTER_SCAN_SEC:.0f} s Sprache ja/nein), Modell {model_size}, "
+                f"Gerät {device}, chapter cue: {chapter_cue}. "
+                f"(Legacy Kopf-Länge {head_seconds_rest:.0f} s — ungenutzt.)"
+            )
         count_line = f"Gefundene Kapitelmarkierungen: {len(all_marks)}"
         empty_line = "(keine Kapitel im Scan)"
         table_hdr = "— Tabelle (Datei | Kapitel | Sekunden | Timecode) —"
     else:
-        title = "AudioBookConverter — detected chapters (head ASR + title words)"
+        if mode == "text":
+            title = "AudioBookConverter — detected chapters (spoken Chapter N)"
+            scan_note = (
+                f"Scanner: text match (“Chapter” + number) in first "
+                f"{TEXT_CHAPTER_SCAN_SEC:.0f} s per MP3; title ASR as before. "
+                f"Model {model_size}, device {device}, chapter cue: {chapter_cue}."
+            )
+        else:
+            title = "AudioBookConverter — detected chapters (head ASR + title words)"
+            scan_note = (
+                f"Scanner: short ASR titles ({head_seconds_first:.0f} s) + per-MP3 head "
+                f"({HEAD_CHAPTER_SCAN_SEC:.0f} s speech yes/no), model {model_size}, "
+                f"device {device}, chapter cue: {chapter_cue}. "
+                f"(Legacy head {head_seconds_rest:.0f} s — unused.)"
+            )
         count_line = f"Chapter markers found: {len(all_marks)}"
         empty_line = "(no chapters found in scan)"
         table_hdr = "— Table (file | chapter | seconds | timecode) —"
@@ -105,21 +142,7 @@ def write_chapter_log(
             "Generated (UTC): "
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
         ),
-        (
-            (
-                f"Scanner: Kurz-ASR Titel ({head_seconds_first:.0f} s) + Kopf je MP3 "
-                f"({HEAD_CHAPTER_SCAN_SEC:.0f} s Sprache ja/nein), Modell {model_size}, "
-                f"Gerät {device}, chapter cue: {chapter_cue}. "
-                f"(Legacy Kopf-Länge {head_seconds_rest:.0f} s — ungenutzt.)"
-            )
-            if de
-            else (
-                f"Scanner: short ASR titles ({head_seconds_first:.0f} s) + per-MP3 head "
-                f"({HEAD_CHAPTER_SCAN_SEC:.0f} s speech yes/no), model {model_size}, "
-                f"device {device}, chapter cue: {chapter_cue}. "
-                f"(Legacy head {head_seconds_rest:.0f} s — unused.)"
-            )
-        ),
+        scan_note,
         "",
         count_line,
         "",
@@ -382,6 +405,81 @@ def _apply_prolog_from_blob(
         findings.prolog_file_index = file_index
 
 
+def _special_title_parallel_workers() -> int:
+    """More than 8 logical CPUs → 4 concurrent special-slot tasks, else 2."""
+    c = os.cpu_count()
+    if c is None or c <= 8:
+        return 2
+    return 4
+
+
+def _transcribe_one_special_slot(
+    ffmpeg_bin: str,
+    model,
+    model_lock: threading.Lock,
+    mp3: Path,
+    language: str,
+) -> tuple[str, str, str]:
+    k = str(mp3.resolve())
+    wav: Optional[Path] = None
+    try:
+        wav = extract_temp_wav(ffmpeg_bin, mp3, SPECIAL_SCAN_SEC)
+        with model_lock:
+            segments = transcribe_segments(model, wav, language)
+        text = " ".join(
+            (getattr(s, "text", "") or "").strip() for s in segments
+        )
+        blob = transcript_letters_blob(segments)
+        return k, text, blob
+    finally:
+        if wav is not None and wav.exists():
+            try:
+                wav.unlink()
+            except OSError:
+                pass
+
+
+def _run_special_title_transcriptions(
+    mp3s: list[Path],
+    ffmpeg_bin: str,
+    model,
+    language: str,
+    max_workers: int,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Returns (transcripts by path key, letter blobs by path key)."""
+    transcripts: dict[str, str] = {}
+    blobs: dict[str, str] = {}
+    if not mp3s:
+        return transcripts, blobs
+    workers = max(1, min(max_workers, len(mp3s)))
+    model_lock = threading.Lock()
+    if len(mp3s) == 1 or workers == 1:
+        for p in mp3s:
+            k, text, blob = _transcribe_one_special_slot(
+                ffmpeg_bin, model, model_lock, p, language
+            )
+            transcripts[k] = text
+            blobs[k] = blob
+        return transcripts, blobs
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [
+            ex.submit(
+                _transcribe_one_special_slot,
+                ffmpeg_bin,
+                model,
+                model_lock,
+                p,
+                language,
+            )
+            for p in mp3s
+        ]
+        for fut in as_completed(futures):
+            k, text, blob = fut.result()
+            transcripts[k] = text
+            blobs[k] = blob
+    return transcripts, blobs
+
+
 def collect_special_findings(
     mp3_list: list[Path],
     ffmpeg_bin: str,
@@ -394,41 +492,39 @@ def collect_special_findings(
     n = len(mp3_list)
     findings = SpecialFindings()
     transcripts: dict[str, str] = {}
-    blob_cache: dict[str, str] = {}
-
-    def path_key(p: Path) -> str:
-        return str(p.resolve())
-
-    def get_text_and_blob(mp3: Path) -> tuple[str, str]:
-        k = path_key(mp3)
-        if k in blob_cache:
-            return transcripts[k], blob_cache[k]
-        wav: Optional[Path] = None
-        try:
-            wav = extract_temp_wav(ffmpeg_bin, mp3, SPECIAL_SCAN_SEC)
-            segments = transcribe_segments(model, wav, language)
-            text = " ".join(
-                (getattr(s, "text", "") or "").strip() for s in segments
-            )
-            blob = transcript_letters_blob(segments)
-            transcripts[k] = text
-            blob_cache[k] = blob
-            return text, blob
-        finally:
-            if wav is not None and wav.exists():
-                try:
-                    wav.unlink()
-                except OSError:
-                    pass
+    blob_by_key: dict[str, str] = {}
 
     if n < 1:
         return findings, transcripts
 
-    _, blob0 = get_text_and_blob(mp3_list[0])
+    max_w = _special_title_parallel_workers()
+    wave1_idx = {0}
+    if n >= 2:
+        wave1_idx.add(1)
+        wave1_idx.add(n - 1)
+    wave1_paths: list[Path] = []
+    seen: set[str] = set()
+    for i in sorted(wave1_idx):
+        p = mp3_list[i]
+        k = str(p.resolve())
+        if k not in seen:
+            seen.add(k)
+            wave1_paths.append(p)
+
+    t1, b1 = _run_special_title_transcriptions(
+        wave1_paths, ffmpeg_bin, model, language, max_w
+    )
+    transcripts.update(t1)
+    blob_by_key.update(b1)
+
+    def blob_at(idx: int) -> str:
+        return blob_by_key[str(mp3_list[idx].resolve())]
+
+    blob0 = blob_at(0)
     z0 = scan_special_words_on_blob(blob0, {"z"}).get("z", False)
     blob1: Optional[str] = None
     if n >= 2:
-        _, blob1 = get_text_and_blob(mp3_list[1])
+        blob1 = blob_at(1)
         z1 = scan_special_words_on_blob(blob1, {"z"}).get("z", False)
     else:
         z1 = False
@@ -443,12 +539,18 @@ def collect_special_findings(
     if n >= 2 and blob1 is not None:
         if findings.zeittafel_covers_first_two_files:
             if n >= 3:
-                _, blob2 = get_text_and_blob(mp3_list[2])
-                _apply_prolog_from_blob(findings, blob2, 2)
+                k2 = str(mp3_list[2].resolve())
+                if k2 not in blob_by_key:
+                    t2, b2 = _run_special_title_transcriptions(
+                        [mp3_list[2]], ffmpeg_bin, model, language, max_w
+                    )
+                    transcripts.update(t2)
+                    blob_by_key.update(b2)
+                _apply_prolog_from_blob(findings, blob_by_key[k2], 2)
         else:
             _apply_prolog_from_blob(findings, blob1, 1)
 
-    _, blob_last = get_text_and_blob(mp3_list[-1])
+    blob_last = blob_by_key[str(mp3_list[-1].resolve())]
     if scan_special_words_on_blob(blob_last, {"e"}).get("e"):
         findings.found_epilog = True
 
@@ -496,16 +598,50 @@ def fallback_body_span(
     return start, end
 
 
-def build_marks(
+def _compact_for_chapter_stem(text: str, chapter_cue: str) -> str:
+    raw = (text or "").lower()
+    if chapter_cue == "de":
+        raw = de_zs_asr_match_key(raw)
+    return re.sub(r"[\s_\W]+", "", raw, flags=re.I)
+
+
+def _spoken_chapter_numbers_from_segments(
+    segments: list,
+    chapter_cue: str,
+) -> list[tuple[float, int]]:
+    """(start_sec, chapter_number): first occurrence of each spoken number in this file."""
+    if chapter_cue == "en":
+        pat = re.compile(r"chapter(\d{1,3})")
+    else:
+        pat = re.compile(r"kapitel(\d{1,3})")
+    hits: list[tuple[float, int]] = []
+    seen_nums: set[int] = set()
+    nseg = len(segments)
+    for i in range(nseg):
+        parts: list[str] = []
+        for j in range(i, min(i + 4, nseg)):
+            parts.append(getattr(segments[j], "text", "") or "")
+        blob = _compact_for_chapter_stem(" ".join(parts), chapter_cue)
+        m = pat.search(blob)
+        if not m:
+            continue
+        num = int(m.group(1))
+        if num in seen_nums:
+            continue
+        seen_nums.add(num)
+        t0 = float(getattr(segments[i], "start", 0.0) or 0.0)
+        hits.append((t0, num))
+    return hits
+
+
+def _special_chapter_marks_only(
     mp3_list: list[Path],
     findings: SpecialFindings,
-    intro_non_speech_head: list[bool],
-    chapter_cue: str,
 ) -> list[dict[str, Any]]:
+    """Zeittafel / Prolog / Prologue / Epilog marks (same as start of ``build_marks``)."""
     n = len(mp3_list)
-    marks: list[dict[str, Any]] = []
     resolved = [str(p.resolve()) for p in mp3_list]
-
+    marks: list[dict[str, Any]] = []
     if n >= 1 and findings.found_zeittafel:
         marks.append(
             {
@@ -539,6 +675,121 @@ def build_marks(
                 "label": "Epilog",
             }
         )
+    return marks
+
+
+def build_marks_text_chapters(
+    mp3_list: list[Path],
+    ffmpeg_bin: str,
+    model,
+    language: str,
+    findings: SpecialFindings,
+    chapter_cue: str,
+    *,
+    text_transcripts_for_log: Optional[list[str]] = None,
+    intro_flags_for_log: Optional[list[bool]] = None,
+    progress_step_holder: Optional[list[int]] = None,
+    total_steps: int = 0,
+) -> list[dict[str, Any]]:
+    """
+    Specials + spoken *Kapitel N* / *Chapter N* in first TEXT_CHAPTER_SCAN_SEC per file.
+    Optionally fills parallel lists for listen logs (``text_transcripts_for_log`` full text,
+    ``intro_flags_for_log`` False when any speech in head 5 s for compatibility).
+    """
+    n = len(mp3_list)
+    resolved = [str(p.resolve()) for p in mp3_list]
+    marks = _special_chapter_marks_only(mp3_list, findings)
+    numbered: list[tuple[int, float, int]] = []
+    logs: list[str] = [] if text_transcripts_for_log is not None else []
+    intro_logs: list[bool] = [] if intro_flags_for_log is not None else []
+
+    for fi, mp3 in enumerate(mp3_list):
+        wav_long: Optional[Path] = None
+        wav_head: Optional[Path] = None
+        try:
+            wav_long = extract_temp_wav(ffmpeg_bin, mp3, TEXT_CHAPTER_SCAN_SEC)
+            segments = transcribe_segments(
+                model, wav_long, language, fast_head=False
+            )
+            joined = " ".join(
+                (getattr(s, "text", "") or "").strip() for s in segments
+            ).strip()
+            if text_transcripts_for_log is not None:
+                logs.append(joined)
+            if intro_flags_for_log is not None:
+                wav_head = extract_temp_wav(ffmpeg_bin, mp3, HEAD_CHAPTER_SCAN_SEC)
+                head_segs = transcribe_segments(
+                    model, wav_head, language, fast_head=True
+                )
+                intro_logs.append(head_intro_like_non_speech(head_segs))
+            for t0, num in _spoken_chapter_numbers_from_segments(
+                segments, chapter_cue
+            ):
+                numbered.append((fi, t0, num))
+            if progress_step_holder is not None and total_steps > 0:
+                progress_step_holder[0] += 1
+                print(
+                    f"[{progress_step_holder[0]}/{total_steps}]",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        finally:
+            for w in (wav_long, wav_head):
+                if w is not None and w.exists():
+                    try:
+                        w.unlink()
+                    except OSError:
+                        pass
+
+    if text_transcripts_for_log is not None:
+        text_transcripts_for_log[:] = logs
+    if intro_flags_for_log is not None:
+        intro_flags_for_log[:] = intro_logs
+
+    for fi, t0, num in numbered:
+        marks.append(
+            {
+                "filePath": resolved[fi],
+                "startSec": max(0.0, t0),
+                "number": num,
+                "label": number_chapter_label(num, chapter_cue),
+            }
+        )
+
+    pos_nums = [m for m in marks if int(m["number"]) > 0]
+    if not pos_nums:
+        span = fallback_body_span(n, findings)
+        if span is not None:
+            a99, _b99 = span
+            marks.append(
+                {
+                    "filePath": resolved[a99],
+                    "startSec": 0.0,
+                    "number": 1,
+                    "label": number_chapter_label(1, chapter_cue),
+                }
+            )
+
+    def sort_key(m: dict[str, Any]) -> tuple[int, int, float, int]:
+        fp = m["filePath"]
+        idx = resolved.index(fp) if fp in resolved else 9999
+        num = int(m["number"])
+        tier = 0 if num < 0 else 1
+        return (idx, tier, float(m["startSec"]), num)
+
+    marks.sort(key=sort_key)
+    return marks
+
+
+def build_marks(
+    mp3_list: list[Path],
+    findings: SpecialFindings,
+    intro_non_speech_head: list[bool],
+    chapter_cue: str,
+) -> list[dict[str, Any]]:
+    n = len(mp3_list)
+    resolved = [str(p.resolve()) for p in mp3_list]
+    marks = _special_chapter_marks_only(mp3_list, findings)
 
     special_excl = stored_special_mask(n, findings)
     boundaries = [
@@ -590,6 +841,7 @@ def write_listen_sidecar(
     head_scan_transcript: str,
     title_slot_transcript: str,
     de: bool,
+    chapter_scan_mode: str = "music",
 ) -> None:
     listen_log_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -598,9 +850,20 @@ def write_listen_sidecar(
         rel = Path(mp3.name)
     safe = str(rel).replace("/", "__").replace("\\", "__")
     out = listen_log_dir / f"{safe}.listen.txt"
+    text_mode = (chapter_scan_mode or "music").lower() == "text"
     if de:
+        title = (
+            "AudioBookConverter — Kapitelscan (Texterkennung)"
+            if text_mode
+            else "AudioBookConverter — Kapitelscan (Kopf-ASR + ggf. Titel-ASR)"
+        )
+        head_label = (
+            f"Transkript Texterkennung (erste {TEXT_CHAPTER_SCAN_SEC:.0f} s):"
+            if text_mode
+            else f"Transkript Kopf ({HEAD_CHAPTER_SCAN_SEC:.0f} s):"
+        )
         lines = [
-            "AudioBookConverter — Kapitelscan (Kopf-ASR + ggf. Titel-ASR)",
+            title,
             f"Projektordner: {root}",
             f"MP3: {mp3}",
             (
@@ -608,7 +871,7 @@ def write_listen_sidecar(
                 f"{'wenig/keine Sprache (Kapitelkopf-Kandidat)' if intro_non_speech_head else 'Sprache erkannt'}"
             ),
             "",
-            f"Transkript Kopf ({HEAD_CHAPTER_SCAN_SEC:.0f} s):",
+            head_label,
             head_scan_transcript or "(leer)",
             "",
             "Transkript Titel-Slots (60 s falls diese Datei betroffen):",
@@ -616,8 +879,18 @@ def write_listen_sidecar(
             "",
         ]
     else:
+        title = (
+            "AudioBookConverter — chapter scan (text cues)"
+            if text_mode
+            else "AudioBookConverter — chapter scan (head ASR + title slots)"
+        )
+        head_label = (
+            f"Text-detection transcript (first {TEXT_CHAPTER_SCAN_SEC:.0f} s):"
+            if text_mode
+            else f"Head transcript ({HEAD_CHAPTER_SCAN_SEC:.0f} s):"
+        )
         lines = [
-            "AudioBookConverter — chapter scan (head ASR + title slots)",
+            title,
             f"Project folder: {root}",
             f"MP3: {mp3}",
             (
@@ -625,7 +898,7 @@ def write_listen_sidecar(
                 f"{'little/no speech (chapter-head candidate)' if intro_non_speech_head else 'speech present'}"
             ),
             "",
-            f"Head transcript ({HEAD_CHAPTER_SCAN_SEC:.0f} s):",
+            head_label,
             head_scan_transcript or "(empty)",
             "",
             "Title-slot transcript (60 s if this file is in those slots):",
@@ -651,6 +924,15 @@ def main() -> None:
     parser.add_argument("--head-seconds-first", type=float, default=HEAD_SECONDS_FIRST_DEFAULT)
     parser.add_argument("--chapter-cue", choices=("de", "en"), default="de")
     parser.add_argument(
+        "--chapter-mode",
+        choices=("music", "text"),
+        default="music",
+        help=(
+            "music: chapter boundaries from short head ASR (music/speech); "
+            "text: spoken Kapitel/Chapter + number in first slice per MP3."
+        ),
+    )
+    parser.add_argument(
         "--listen-log-dir",
         default="",
         metavar="DIR",
@@ -662,6 +944,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     chapter_cue: str = args.chapter_cue
+    chapter_mode: str = str(args.chapter_mode or "music").lower()
     head_sec_first = max(0.5, float(args.head_seconds_first))
     head_sec_rest = max(0.5, float(args.head_seconds))
 
@@ -686,8 +969,17 @@ def main() -> None:
             head_seconds_first=head_sec_first,
             head_seconds_rest=head_sec_rest,
             chapter_cue=chapter_cue,
+            chapter_mode=chapter_mode,
         )
-        json.dump({"marks": [], "chapterCue": chapter_cue}, sys.stdout, ensure_ascii=False)
+        json.dump(
+            {
+                "marks": [],
+                "chapterCue": chapter_cue,
+                "chapterRecognition": chapter_mode,
+            },
+            sys.stdout,
+            ensure_ascii=False,
+        )
         sys.stdout.write("\n")
         return
 
@@ -738,39 +1030,54 @@ def main() -> None:
 
     intro_flags: list[bool] = []
     head_transcripts: list[str] = []
-    for mp3 in mp3_list:
-        wav: Optional[Path] = None
-        try:
-            wav = extract_temp_wav(args.ffmpeg, mp3, HEAD_CHAPTER_SCAN_SEC)
-            segments = transcribe_segments(
-                model, wav, args.language, fast_head=True
-            )
-            text = " ".join(
-                (getattr(s, "text", "") or "").strip() for s in segments
-            ).strip()
-            head_transcripts.append(text)
-            intro = head_intro_like_non_speech(segments)
-            intro_flags.append(intro)
-            if _head_debug_enabled():
-                nw, alnum, _ = head_transcript_word_stats(segments)
-                nsp = [float(getattr(s, "no_speech_prob")) for s in segments if getattr(s, "no_speech_prob", None) is not None]
-                nsp_s = f" avg_no_speech_prob={sum(nsp)/len(nsp):.2f}" if nsp else ""
-                print(
-                    f"[head-debug] {mp3.name}: words={nw} alnum={alnum} "
-                    f"intro_non_speech={intro}{nsp_s}",
-                    file=sys.stderr,
-                    flush=True,
+    if chapter_mode == "text":
+        step_holder = [n_title_slots]
+        all_marks = build_marks_text_chapters(
+            mp3_list,
+            args.ffmpeg,
+            model,
+            args.language,
+            findings,
+            chapter_cue,
+            text_transcripts_for_log=head_transcripts,
+            intro_flags_for_log=intro_flags,
+            progress_step_holder=step_holder,
+            total_steps=total_steps,
+        )
+    else:
+        for mp3 in mp3_list:
+            wav: Optional[Path] = None
+            try:
+                wav = extract_temp_wav(args.ffmpeg, mp3, HEAD_CHAPTER_SCAN_SEC)
+                segments = transcribe_segments(
+                    model, wav, args.language, fast_head=True
                 )
-        finally:
-            if wav is not None and wav.exists():
-                try:
-                    wav.unlink()
-                except OSError:
-                    pass
-        step += 1
-        print(f"[{step}/{total_steps}]", file=sys.stderr, flush=True)
+                text = " ".join(
+                    (getattr(s, "text", "") or "").strip() for s in segments
+                ).strip()
+                head_transcripts.append(text)
+                intro = head_intro_like_non_speech(segments)
+                intro_flags.append(intro)
+                if _head_debug_enabled():
+                    nw, alnum, _ = head_transcript_word_stats(segments)
+                    nsp = [float(getattr(s, "no_speech_prob")) for s in segments if getattr(s, "no_speech_prob", None) is not None]
+                    nsp_s = f" avg_no_speech_prob={sum(nsp)/len(nsp):.2f}" if nsp else ""
+                    print(
+                        f"[head-debug] {mp3.name}: words={nw} alnum={alnum} "
+                        f"intro_non_speech={intro}{nsp_s}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+            finally:
+                if wav is not None and wav.exists():
+                    try:
+                        wav.unlink()
+                    except OSError:
+                        pass
+            step += 1
+            print(f"[{step}/{total_steps}]", file=sys.stderr, flush=True)
 
-    all_marks = build_marks(mp3_list, findings, intro_flags, chapter_cue)
+        all_marks = build_marks(mp3_list, findings, intro_flags, chapter_cue)
 
     if listen_log_dir is not None:
         for idx, mp3 in enumerate(mp3_list):
@@ -782,6 +1089,7 @@ def main() -> None:
                 head_scan_transcript=head_transcripts[idx],
                 title_slot_transcript=transcripts.get(str(mp3.resolve()), ""),
                 de=chapter_cue == "de",
+                chapter_scan_mode=chapter_mode,
             )
         if chapter_cue == "de":
             print(
@@ -805,13 +1113,18 @@ def main() -> None:
             head_seconds_first=head_sec_first,
             head_seconds_rest=head_sec_rest,
             chapter_cue=chapter_cue,
+            chapter_mode=chapter_mode,
         )
     except OSError as exc:
         print(f"Could not write chapter log: {exc}", file=sys.stderr)
         sys.exit(1)
 
     json.dump(
-        {"marks": all_marks, "chapterCue": chapter_cue},
+        {
+            "marks": all_marks,
+            "chapterCue": chapter_cue,
+            "chapterRecognition": chapter_mode,
+        },
         sys.stdout,
         ensure_ascii=False,
     )
