@@ -7,10 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F4E1D1C1B1A110F0E0D0CA02 /* AudioBookConverter.help in Resources */ = {isa = PBXBuildFile; fileRef = F4E1D1C1B1A110F0E0D0CA01 /* AudioBookConverter.help */; };
 		5142014D2437B4B30078DB4F /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5142014C2437B4B30078DB4F /* AppDelegate.mm */; };
 		514201522437B4B40078DB4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 514201512437B4B40078DB4F /* Assets.xcassets */; };
 		514201552437B4B40078DB4F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 514201532437B4B40078DB4F /* Main.storyboard */; };
 		514201582437B4B40078DB4F /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 514201572437B4B40078DB4F /* main.m */; };
+		C5A4B3924E1F2D3CA4BC0010 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C5A4B3924E1F2D3CA4BC000F /* Carbon.framework */; };
 		7D11D02AB9445550105F517D /* libPods-AudioBookConverter-macOS.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 2C3D838595927DD6BF4531B2 /* libPods-AudioBookConverter-macOS.a */; };
 		B4A0F0E0D0C0B0A0F0E0D0C04 /* whisper_chapter_scan.py in Resources */ = {isa = PBXBuildFile; fileRef = B4A0F0E0D0C0B0A0F0E0D0C01 /* whisper_chapter_scan.py */; };
 		B4A0F0E0D0C0B0A0F0E0D0C05 /* merge_mp3_chapters.py in Resources */ = {isa = PBXBuildFile; fileRef = B4A0F0E0D0C0B0A0F0E0D0C02 /* merge_mp3_chapters.py */; };
@@ -31,8 +33,10 @@
 		514201562437B4B40078DB4F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		514201572437B4B40078DB4F /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		514201592437B4B40078DB4F /* AudioBookConverter.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AudioBookConverter.entitlements; sourceTree = "<group>"; };
+		F4E1D1C1B1A110F0E0D0CA01 /* AudioBookConverter.help */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AudioBookConverter.help; sourceTree = "<group>"; };
 		859842012CD7601A998AA397 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B4A0F0E0D0C0B0A0F0E0D0C01 /* whisper_chapter_scan.py */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.python; name = whisper_chapter_scan.py; path = whisper_chapter_scan.py; sourceTree = "<group>"; };
+		C5A4B3924E1F2D3CA4BC000F /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = System/Library/Frameworks/Carbon.framework; sourceTree = SDKROOT; };
 		B4A0F0E0D0C0B0A0F0E0D0C02 /* merge_mp3_chapters.py */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.python; name = merge_mp3_chapters.py; path = merge_mp3_chapters.py; sourceTree = "<group>"; };
 		D18D9001243712340056800A /* DependencyStatus.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DependencyStatus.mm; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
@@ -51,6 +55,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C5A4B3924E1F2D3CA4BC0010 /* Carbon.framework in Frameworks */,
 				7D11D02AB9445550105F517D /* libPods-AudioBookConverter-macOS.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -61,6 +66,7 @@
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				C5A4B3924E1F2D3CA4BC000F /* Carbon.framework */,
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				2C3D838595927DD6BF4531B2 /* libPods-AudioBookConverter-macOS.a */,
 			);
@@ -87,6 +93,7 @@
 				514201562437B4B40078DB4F /* Info.plist */,
 				514201572437B4B40078DB4F /* main.m */,
 				514201592437B4B40078DB4F /* AudioBookConverter.entitlements */,
+				F4E1D1C1B1A110F0E0D0CA01 /* AudioBookConverter.help */,
 			);
 			path = "AudioBookConverter-macOS";
 			sourceTree = "<group>";
@@ -161,6 +168,7 @@
 				1A938104A937498D81B3BD3B /* [CP] Check Pods Manifest.lock */,
 				514201452437B4B30078DB4F /* Sources */,
 				514201462437B4B30078DB4F /* Frameworks */,
+				F5E2D34024394AABKHELPIDX1 /* Regenerate Help search indices */,
 				514201472437B4B30078DB4F /* Resources */,
 				381D8A6E24576A4E00465D17 /* Bundle React Native code and images */,
 				3AF0E60DFBCF55782F3818D0 /* [CP] Copy Pods Resources */,
@@ -229,12 +237,33 @@
 				EE6D230D762870F9CBB5E3CC /* PrivacyInfo.xcprivacy in Resources */,
 				B4A0F0E0D0C0B0A0F0E0D0C04 /* whisper_chapter_scan.py in Resources */,
 				B4A0F0E0D0C0B0A0F0E0D0C05 /* merge_mp3_chapters.py in Resources */,
+				F4E1D1C1B1A110F0E0D0CA02 /* AudioBookConverter.help in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		F5E2D34024394AABKHELPIDX1 /* Regenerate Help search indices */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Regenerate Help search indices";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"${SRCROOT}/AudioBookConverter-macOS/AudioBookConverter.help/Contents/Resources/en.lproj/search.cshelpindex",
+				"${SRCROOT}/AudioBookConverter-macOS/AudioBookConverter.help/Contents/Resources/de.lproj/search.cshelpindex",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "HELP_RES=\"${SRCROOT}/AudioBookConverter-macOS/AudioBookConverter.help/Contents/Resources\"\nif [ ! -d \"${HELP_RES}/en.lproj\" ] || [ ! -d \"${HELP_RES}/de.lproj\" ]; then\n  echo \"warning: Help Resources folder missing; skipping hiutil\"\n  exit 0\nfi\n/usr/bin/hiutil -I corespotlight -C -gv -s en -f \"${HELP_RES}/en.lproj/search.cshelpindex\" \"${HELP_RES}/en.lproj\" || exit 1\n/usr/bin/hiutil -I corespotlight -C -gv -s de -f \"${HELP_RES}/de.lproj/search.cshelpindex\" \"${HELP_RES}/de.lproj\" || exit 1\n";
+		};
 		00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

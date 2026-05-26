@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+	<meta charset="utf-8" />
+	<meta name="AppleTitle" content="AudioBookConverter Help" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>AudioBookConverter Hilfe</title>
+	<style>
+		body { font-family: -apple-system, system-ui, sans-serif; margin: 1.25em 1.5em; line-height: 1.45; max-width: 52em; color: #222; }
+		code, pre { font-family: "SF Mono", Menlo, monospace; font-size: 0.9em; }
+		pre { background: #f5f5f7; padding: 0.75em 1em; border-radius: 6px; overflow-x: auto; }
+		ul { padding-left: 1.25em; }
+		h1 { font-size: 1.5em; margin-top: 0; }
+		h2 { font-size: 1.15em; margin-top: 1.35em; border-bottom: 1px solid #ddd; padding-bottom: 0.2em; }
+		.note { color: #444; font-size: 0.92em; }
+	</style>
+</head>
+<body>
+	<h1>AudioBookConverter</h1>
+	<p>
+		AudioBookConverter ist eine macOS-App, die einen Ordner mit MP3-Dateien in eine einzelne Hörbuchdatei umwandelt.
+	</p>
+	<p>Die App basiert auf React Native für macOS und enthält eine Konvertierungs-Pipeline, die:</p>
+	<ul>
+		<li>MP3-Titel einlesen und Kapitelgrenzen erkennen kann,</li>
+		<li>alle Titel zu einer Audiodatei mit Kapitel-Metadaten zusammenführen kann,</li>
+		<li>eine fertige Hörbuchdatei (<code>.m4b</code>) erzeugen kann.</li>
+	</ul>
+
+	<h2>Plattform</h2>
+	<p>Dieses Projekt ist derzeit auf <strong>macOS</strong> ausgerichtet.</p>
+	<p>
+		Die Python-Einstiegspunkte für die Konvertierung (<code>whisper_chapter_scan.py</code>, <code>merge_mp3_chapters.py</code>
+		im Ordner <code>scripts/</code> im Repository) werden beim Erstellen des macOS-Ziels <strong>im App-Bundle mitgeliefert</strong>,
+		sodass eine <strong>Release</strong>-App auch ohne eine lokale Repository-Kopie läuft. Der native Code greift außerdem auf den
+		Ordner <code>scripts/</code> neben einem lokalen Checkout zurück, wenn <code>AUDIOBOOK_PROJECT_ROOT</code> gültig ist
+		(üblich bei der Entwicklung direkt aus dem Repository).
+	</p>
+
+	<h2>Voraussetzungen</h2>
+	<p>Bevor Sie die App starten, sollten folgende Abhängigkeiten verfügbar sein:</p>
+	<ul>
+		<li>Node.js 18 oder neuer</li>
+		<li>npm</li>
+		<li>Xcode (mindestens einmal geöffnet)</li>
+		<li>CocoaPods</li>
+		<li><code>ffmpeg</code> und <code>ffprobe</code> im <code>PATH</code></li>
+		<li>Python 3</li>
+	</ul>
+	<p>
+		Für die volle Konvertierungsfunktionalität legen Sie eine Python-Virtualumgebung unter
+		<strong><code>~/.audioBookConverter</code></strong> (in Ihrem Benutzerverzeichnis) an und installieren Sie die benötigten Pakete
+		(z.&nbsp;B. <code>faster-whisper</code>). Die App nutzt diesen Pfad für alle Builds; alternativ können Sie im integrierten
+		Python-Abhängigkeitsbereich <strong>Installieren</strong> verwenden, um die Umgebung anzulegen.
+	</p>
+	<p>
+		<strong>Google-Books-API-Schlüssel (optional).</strong> Die App kann anhand des ausgewählten Ordnernamens ein Buchcover über die
+		Google-Books-API suchen. Dazu können Sie <code>GOOGLE_BOOKS_API_KEY</code> in einer lokalen <code>.env</code>-Datei setzen
+		(siehe <code>.env.example</code> im Repository-Root; nach <code>.env</code> kopieren und den Schlüssel eintragen). Diese Datei
+		wird nicht von Git versioniert. Ohne Schlüssel funktioniert unauthentisierter Zugriff weiterhin, allerdings mit strengeren
+		Ratenbegrenzungen. Ein Schlüssel ist nur eine Erleichterung und für den übrigen Konvertierungsablauf nicht erforderlich.
+	</p>
+
+	<h2>Erste Schritte (Entwicklung)</h2>
+	<h3 style="margin-top:0.8em; font-size:1em;">1) JavaScript-Abhängigkeiten installieren</h3>
+	<pre><code>npm install</code></pre>
+	<h3 style="margin-top:0.8em; font-size:1em;">2) macOS-Pods installieren</h3>
+	<pre><code>cd macos
+pod install
+cd ..</code></pre>
+	<h3 style="margin-top:0.8em; font-size:1em;">3) Metro starten</h3>
+	<p>Terminal 1:</p>
+	<pre><code>npm start</code></pre>
+	<h3 style="margin-top:0.8em; font-size:1em;">4) macOS-App starten</h3>
+	<p>Terminal 2:</p>
+	<pre><code>npx react-native run-macos</code></pre>
+
+	<h2>Bedienung</h2>
+	<ol>
+		<li>App starten.</li>
+		<li>Den Ordner mit Ihren MP3-Dateien auswählen.</li>
+		<li>Die Konvertierungs-Pipeline über die Benutzeroberfläche starten.</li>
+		<li>Warten, bis die Verarbeitung abgeschlossen ist.</li>
+	</ol>
+	<p>Erwartete Ausgabedateien im gewählten Projekt-/Ausgabeordner:</p>
+	<ul>
+		<li><code>AudiobookConverter_kapitel.log</code></li>
+		<li><code>AudiobookConverter_merged.m4a</code> (Zwischendatei)</li>
+		<li><code>AudiobookConverter.m4b</code> (fertiges Hörbuch)</li>
+	</ul>
+
+	<h2>Fehlerbehebung</h2>
+	<ul>
+		<li>Bei nativen Build-Fehlern erneut <code>pod install</code> im Ordner <code>macos/</code> ausführen.</li>
+		<li>Bei Problemen mit dem Xcode-Build-Cache: <strong>Produkt → Build-Ordner bereinigen</strong>.</li>
+		<li>Wenn Abhängigkeitsprüfungen in der App fehlschlagen: <code>ffmpeg</code>, Python und die Virtualumgebung <code>~/.audioBookConverter</code> prüfen.</li>
+		<li>
+			Wenn Sie zuvor einen Ordner <code>.audioBookConverter</code> <strong>innerhalb eines Repository-Klons</strong> verwendet haben,
+			verschieben Sie ihn nach <code>~/.audioBookConverter</code>
+			(oder entfernen Sie ihn und nutzen Sie <strong>Installieren</strong> im Python-Bereich der App, um die Umgebung dort neu anzulegen).
+		</li>
+	</ul>
+
+	<p class="note"><em>Diese Hilfeseite entspricht dem README des AudioBookConverter-Repositories; aktualisieren Sie die Hilfe, wenn sich das README inhaltlich stark ändert.</em></p>
+	<p class="note"><em>Sprache: Wenn in der App <strong>German</strong> (Kapitelsprache Deutsch) aktiv ist, wird diese deutsche Hilfe geöffnet; bei <strong>English</strong> die englische Fassung.</em></p>
+</body>
+</html>

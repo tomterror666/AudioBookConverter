@@ -1475,7 +1475,48 @@ PODS:
     - React-perflogger (= 0.77.7)
     - React-utils (= 0.77.7)
   - RNSVG (15.11.1):
+    - DoubleConversion
+    - glog
+    - RCT-Folly (= 2024.11.18.00)
+    - RCTRequired
+    - RCTTypeSafety
     - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - RNSVG/common (= 15.11.1)
+    - Yoga
+  - RNSVG/common (15.11.1):
+    - DoubleConversion
+    - glog
+    - RCT-Folly (= 2024.11.18.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - SocketRocket (0.7.1)
   - Yoga (0.0.0)
 
@@ -1510,6 +1551,7 @@ DEPENDENCIES:
   - React-idlecallbacksnativemodule (from `../node_modules/react-native-macos/ReactCommon/react/nativemodule/idlecallbacks`)
   - React-ImageManager (from `../node_modules/react-native-macos/ReactCommon/react/renderer/imagemanager/platform/ios`)
   - React-jsc (from `../node_modules/react-native-macos/ReactCommon/jsc`)
+  - React-jsc/Fabric (from `../node_modules/react-native-macos/ReactCommon/jsc`)
   - React-jserrorhandler (from `../node_modules/react-native-macos/ReactCommon/jserrorhandler`)
   - React-jsi (from `../node_modules/react-native-macos/ReactCommon/jsi`)
   - React-jsiexecutor (from `../node_modules/react-native-macos/ReactCommon/jsiexecutor`)
@@ -1687,15 +1729,15 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-macos/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
-  boost: 7d49a506d1ac47358fea28558d184dd6431170ca
-  DoubleConversion: 10f51d3e1238973c033faac2d84c0ea114942f53
+  boost: 4c384cc67784d4b15fd14e25b3877c442c1d8064
+  DoubleConversion: c914223d2d29c914635ef1b0721d8a77cca6a732
   fast_float: 44983b3bddb2d2ed3021a98be86f60ec8abc9ffd
   FBLazyVector: bf4988e4c2837af586b5a84c8534205795fcaa7e
-  fmt: f6af2d677a106e3e44c9536a4c0c7f03ab53c854
-  glog: b7594b792ee4e02ed1f44b01d046ca25fa713e3d
+  fmt: 1605913b0cf96d1e53f583ebbf580e36713dd21f
+  glog: 750f96a379703a2d724d2f1fc6cb3a3eff000817
   RCT-Folly: e8b53d8c0d2d9df4a6a8b0a368a1a91fc62a88cb
   RCTDeprecation: 1658147a1ec7b6bc7802b2e3d990e6f5671b351b
-  RCTFilePanel: 78b91e5c128cd3f15071ab09090907a87b2a020b
+  RCTFilePanel: e627ceea1ae2a90cce3f7add4126a0562bcfe646
   RCTRequired: c5bc0b198b7e7da9da75b3f9b6b49fa12e1a4b5f
   RCTTypeSafety: 31abac5e5aff1ffdedd611c2b37091a1a9b7de36
   React: 08ed636aa2f917ce2d586cb34b0dc9ca4da0ba7b
@@ -1729,10 +1771,10 @@ SPEC CHECKSUMS:
   React-performancetimeline: 3bf37fd8cc0ae330f21031b33879ee6f22f2615c
   React-RCTActionSheet: d53bb0fa9466ffb2c48126041ba03231487852b4
   React-RCTAnimation: f03a8aa16737e7a8bff6d5449a36c80b68c83b54
-  React-RCTAppDelegate: f4bb1474047969d76b7e06caca79883bd4c8c148
+  React-RCTAppDelegate: e13056faf942632a3b95e4716dad050b25df5836
   React-RCTBlob: dd5426d580e73247b16d5a0f036cb4dd4b016f00
-  React-RCTFabric: d7ccacc4b7565633fb2e236e676688b3f888662d
-  React-RCTFBReactNativeSpec: 1cb0802e042190d70e6d547788a56acbfed8e6b7
+  React-RCTFabric: af7e9779a915371a6ec0ea735a9093e6e4e4f468
+  React-RCTFBReactNativeSpec: 73bf497707148859841db075f98e0a406fa2f7e1
   React-RCTImage: 61ed8a77cd1fe02e9ec236eaf4c95273f1b6eb94
   React-RCTLinking: e47bb6690afc446aba2bac405cd8020cff33b72c
   React-RCTNetwork: 5f613458658303401ccf2707bed1da97806ce351
@@ -1751,7 +1793,7 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: c2a7b48333d853a9e276a02ccdcfd79c46bc1679
   ReactCodegen: bbd8cdbe9fc8f704a0fb929f40c8be19823c6269
   ReactCommon: f7a8a85835c06b480484d40dbacb55b5b3166ad9
-  RNSVG: 4903d466c3a877644d5219dbc1d97f9ef9e4a3cc
+  RNSVG: 56ab68edda4fab59987f761784e8f0d1f05445b5
   SocketRocket: 03f7111df1a343b162bf5b06ead333be808e1e0a
   Yoga: b5a0da24e2388800186a07085ebbcc2fc9b4bab4
 

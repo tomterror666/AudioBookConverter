@@ -1,6 +1,8 @@
 #import <React/RCTBridgeModule.h>
 #import <AppKit/AppKit.h>
 
+#import "AppDelegate.h"
+
 @interface DependencyStatus : NSObject <RCTBridgeModule>
 @end
 
@@ -1464,6 +1466,31 @@ static void FinalizeM4bAudiobookResolved(NSString *mergedM4aPath,
 @implementation DependencyStatus
 
 RCT_EXPORT_MODULE();
+
+RCT_EXPORT_METHOD(syncChapterCueForHelp:(NSString *)locale)
+{
+  if (locale.length == 0) {
+    return;
+  }
+  if (![locale isEqualToString:@"en"] && ![locale isEqualToString:@"de"]) {
+    return;
+  }
+
+  NSString *value = locale;
+  void (^apply)(void) = ^{
+    [[NSUserDefaults standardUserDefaults] setObject:value
+                                              forKey:@"AudioBookConverterChapterCue"];
+    id appDel = [[NSApplication sharedApplication] delegate];
+    if ([appDel isKindOfClass:[AppDelegate class]]) {
+      [(AppDelegate *)appDel aubk_setChapterCueForHelp:value];
+    }
+  };
+  if ([NSThread isMainThread]) {
+    apply();
+  } else {
+    dispatch_sync(dispatch_get_main_queue(), apply);
+  }
+}
 
 @synthesize callableJSModules = _callableJSModules;
 

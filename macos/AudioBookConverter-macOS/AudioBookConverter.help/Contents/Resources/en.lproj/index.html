@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="AppleTitle" content="AudioBookConverter Help" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>AudioBookConverter Help</title>
+	<style>
+		body { font-family: -apple-system, system-ui, sans-serif; margin: 1.25em 1.5em; line-height: 1.45; max-width: 52em; color: #222; }
+		code, pre { font-family: "SF Mono", Menlo, monospace; font-size: 0.9em; }
+		pre { background: #f5f5f7; padding: 0.75em 1em; border-radius: 6px; overflow-x: auto; }
+		ul { padding-left: 1.25em; }
+		h1 { font-size: 1.5em; margin-top: 0; }
+		h2 { font-size: 1.15em; margin-top: 1.35em; border-bottom: 1px solid #ddd; padding-bottom: 0.2em; }
+		.note { color: #444; font-size: 0.92em; }
+	</style>
+</head>
+<body>
+	<h1>AudioBookConverter</h1>
+	<p>
+		AudioBookConverter is a macOS app that converts a folder of MP3 files into a single audiobook file.
+	</p>
+	<p>The app is built with React Native for macOS and includes a conversion pipeline that can:</p>
+	<ul>
+		<li>scan MP3 tracks and detect chapter boundaries,</li>
+		<li>merge tracks into one audio file with chapter metadata,</li>
+		<li>export a final audiobook file (<code>.m4b</code>).</li>
+	</ul>
+
+	<h2>Platform</h2>
+	<p>This project is currently focused on <strong>macOS</strong>.</p>
+	<p>
+		The conversion Python entry points (<code>whisper_chapter_scan.py</code>, <code>merge_mp3_chapters.py</code>
+		under <code>scripts/</code> in the repository) are <strong>included in the app bundle</strong> when you build the macOS target,
+		so a <strong>Release</strong> app runs on any machine even without a copy of the repository. The native code also falls back to the
+		<code>scripts/</code> folder next to a local checkout when <code>AUDIOBOOK_PROJECT_ROOT</code> is valid (typical when developing from the repo).
+	</p>
+
+	<h2>What You Need</h2>
+	<p>Before starting the app, make sure these dependencies are available:</p>
+	<ul>
+		<li>Node.js 18 or newer</li>
+		<li>npm</li>
+		<li>Xcode (opened at least once)</li>
+		<li>CocoaPods</li>
+		<li><code>ffmpeg</code> and <code>ffprobe</code> in your PATH</li>
+		<li>Python 3</li>
+	</ul>
+	<p>
+		For full conversion functionality, create a Python virtual environment at <strong><code>~/.audioBookConverter</code></strong>
+		(in your home directory) and install the required Python packages (for example <code>faster-whisper</code>). The app uses this path
+		for all builds; you can also use <strong>Install</strong> in the in-app Python dependency panel to create it.
+	</p>
+	<p>
+		<strong>Google Books API key (optional).</strong> The app can look up a book cover for the selected folder name via the Google Books API.
+		You may set <code>GOOGLE_BOOKS_API_KEY</code> in a local <code>.env</code> file (see <code>.env.example</code> in the repository root;
+		copy it to <code>.env</code> and add your key). That file is not tracked by git. If no key is set, unauthenticated access still works
+		but with stricter rate limits. Providing a key is only for convenience and is not required to run the rest of the conversion pipeline.
+	</p>
+
+	<h2>Getting Started (development)</h2>
+	<h3 style="margin-top:0.8em; font-size:1em;">1) Install JavaScript dependencies</h3>
+	<pre><code>npm install</code></pre>
+	<h3 style="margin-top:0.8em; font-size:1em;">2) Install macOS Pods</h3>
+	<pre><code>cd macos
+pod install
+cd ..</code></pre>
+	<h3 style="margin-top:0.8em; font-size:1em;">3) Start Metro</h3>
+	<p>Open terminal 1:</p>
+	<pre><code>npm start</code></pre>
+	<h3 style="margin-top:0.8em; font-size:1em;">4) Launch the macOS app</h3>
+	<p>Open terminal 2:</p>
+	<pre><code>npx react-native run-macos</code></pre>
+
+	<h2>How to Use</h2>
+	<ol>
+		<li>Start the app.</li>
+		<li>Select the folder that contains your MP3 files.</li>
+		<li>Run the conversion pipeline from the UI.</li>
+		<li>Wait for processing to finish.</li>
+	</ol>
+	<p>Expected output files in your selected project/output folder:</p>
+	<ul>
+		<li><code>AudiobookConverter_kapitel.log</code></li>
+		<li><code>AudiobookConverter_merged.m4a</code> (intermediate file)</li>
+		<li><code>AudiobookConverter.m4b</code> (final audiobook)</li>
+	</ul>
+
+	<h2>Troubleshooting</h2>
+	<ul>
+		<li>If native build errors appear, run <code>pod install</code> again in <code>macos/</code>.</li>
+		<li>If Xcode build cache causes issues, use <strong>Product → Clean Build Folder</strong>.</li>
+		<li>If dependency checks fail in the app, verify <code>ffmpeg</code>, Python, and the <code>~/.audioBookConverter</code> venv.</li>
+		<li>
+			If you previously used a <code>.audioBookConverter</code> folder <strong>inside a clone of this repository</strong>,
+			move it to your home directory as <code>~/.audioBookConverter</code>
+			(or remove it and use <strong>Install</strong> in the app’s Python panel to recreate the venv there).
+		</li>
+	</ul>
+
+	<p class="note"><em>This Help page mirrors the README in the AudioBookConverter repository; update Help when README changes materially.</em></p>
+	<p class="note"><em>Which language opens: Help follows the chapter language toggle—<strong>German</strong> shows the German help page, <strong>English</strong> shows this English page.</em></p>
+</body>
+</html>

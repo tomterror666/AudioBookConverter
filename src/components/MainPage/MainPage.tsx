@@ -577,7 +577,7 @@ function MainPageInner(props: {
     }
   }, []);
 
-  const handleVerzeichnisPress = async () => {
+  const handleVerzeichnisPress = useCallback(async () => {
     try {
       if (Platform.OS === "macos") {
         const mod = NativeModules.DependencyStatus as
@@ -619,7 +619,20 @@ function MainPageInner(props: {
         ),
       );
     }
-  };
+  }, [showInfoModal, u]);
+
+  useEffect(() => {
+    if (Platform.OS !== "macos") {
+      return;
+    }
+    const sub = DeviceEventEmitter.addListener(
+      "OpenFolderFromMenu",
+      () => {
+        void handleVerzeichnisPress();
+      },
+    );
+    return () => sub.remove();
+  }, [handleVerzeichnisPress]);
 
   const handleModePress = async () => {
     const picked = await askSelection(
@@ -1311,6 +1324,17 @@ function MainPageInner(props: {
 
 export function MainPage(): React.JSX.Element {
   const [chapterCue, setChapterCue] = useState<ChapterCue>("de");
+
+  useEffect(() => {
+    if (Platform.OS !== "macos") {
+      return;
+    }
+    const mod = NativeModules.DependencyStatus as
+      | { syncChapterCueForHelp?: (locale: string) => void }
+      | undefined;
+    mod?.syncChapterCueForHelp?.(chapterCue);
+  }, [chapterCue]);
+
   return (
     <UiLocaleProvider value={chapterCue}>
       <MainPageInner chapterCue={chapterCue} setChapterCue={setChapterCue} />
